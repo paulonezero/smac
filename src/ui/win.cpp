@@ -221,6 +221,10 @@ bool run_command(const std::string& cmd) {
         if (std::sscanf(arg.c_str(), "%f/%f", &x, &y) == 2) platform::wheel_inject(x, y);
         return true;
     }
+    if (cmd == "viewpoint") {  // VIEWPOINT, a tile followed across zooms (smoothview.h)
+        smoothview::point();
+        return true;
+    }
     if (cmd == "viewcheck") {  // VIEWCHECK, the tiles in view against their points (smoothview.h)
         smoothview::check();
         return true;

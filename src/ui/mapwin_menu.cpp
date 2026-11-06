@@ -77,10 +77,14 @@ void THISCALL MapWin_right_menu(uint8_t* win, int32_t x, int32_t y, int32_t px, 
         case 0x321:
         case 0x322: pfncMoveMap(MapWins[0], x, y, 1); break;
         case 0x323:
-            if (zoom < 0) map_win(win).zoom = zoom + 2, ui_invalidate_map();
+            if (zoom >= 0) break;
+            if (win == MapWins[0]) pfncProcZoomKey(&MainConsole, 0x203, 0);  // the smooth way
+            else map_win(win).zoom = zoom + 2, ui_invalidate_map();
             break;
         case 0x324:
-            if (zoom >= -0xD) map_win(win).zoom = zoom - 2, ui_invalidate_map();
+            if (zoom < -0xD) break;
+            if (win == MapWins[0]) pfncProcZoomKey(&MainConsole, 0x204, 0);
+            else map_win(win).zoom = zoom - 2, ui_invalidate_map();
             break;
         case 0x325:
             if (zoom != -8) map_win(win).zoom = -8, ui_invalidate_map();

@@ -62,6 +62,20 @@ inline int32_t glide_ms(double distance, double screen) {
 // Whether a glide is worth it: further than this the view just appears there.
 inline bool glide_too_far(double distance, double screen) { return distance > screen * 3.0; }
 
+// A change of zoom: the view position that keeps the map point at screen position `anchor` there.
+// A map coordinate X is at screen (X - 1) * half - position (pfncTileToPoint), on each axis.
+inline double zoom_axis(double pos, int32_t half0, int32_t half1, double anchor) {
+    const double map = (anchor + pos) / half0 + 1;
+    return (map - 1) * half1 - anchor;
+}
+
+// One frame of a scaling picture: the source pixel shown at destination `dst` when the picture is
+// scaled by `scale` about `fixed`, clamped to the source.
+inline int32_t scaled_source(int32_t dst, double fixed, double scale, int32_t size) {
+    const int32_t i = (int32_t)std::floor(fixed + (dst + 0.5 - fixed) / scale);
+    return std::clamp(i, 0, size - 1);
+}
+
 // The mouse against a screen edge on one axis: -1 at the low edge, 1 at the high one, else 0.
 inline int32_t edge_axis(int32_t pos, int32_t size, int32_t band) {
     if (pos < band) return -1;

@@ -59,3 +59,34 @@ TEST_CASE("smoothview: the mouse at a screen edge") {
     CHECK(edge_axis(1468, 1470, 2) == 1);
     CHECK(edge_axis(1469, 1470, 2) == 1);
 }
+
+TEST_CASE("smoothview: a change of zoom keeps the map point at the anchor") {
+    // A map coordinate X is at screen (X - 1) * half - position.
+    const auto screen = [](double map, int32_t half, double pos) { return (map - 1) * half - pos; };
+    const double anchor = 735;
+    for (double pos : {-500.0, 0.0, 1234.0, 9000.0}) {
+        for (int32_t half0 : {4, 24, 76, 100}) {
+            for (int32_t half1 : {4, 24, 76, 100}) {
+                const double map = (anchor + pos) / half0 + 1;  // the point at the anchor now
+                const double to = zoom_axis(pos, half0, half1, anchor);
+                CHECK(screen(map, half0, pos) == doctest::Approx(anchor));
+                CHECK(screen(map, half1, to) == doctest::Approx(anchor));
+            }
+        }
+    }
+    CHECK(zoom_axis(1234, 76, 76, anchor) == doctest::Approx(1234));  // the same zoom: as it is
+}
+
+TEST_CASE("smoothview: a scaling picture") {
+    // Scale 1: every pixel its own, whatever the fixed point.
+    for (int32_t x = 0; x < 100; x++) CHECK(scaled_source(x, 50, 1, 100) == x);
+    // Twice the size about the middle: the middle stays, the middle half fills the width.
+    CHECK(scaled_source(50, 50, 2, 100) == 50);
+    CHECK(scaled_source(0, 50, 2, 100) == 25);
+    CHECK(scaled_source(99, 50, 2, 100) == 74);
+    // Half the size: what falls outside the source is its edge, never out of bounds.
+    CHECK(scaled_source(0, 50, 0.5, 100) == 0);
+    CHECK(scaled_source(99, 50, 0.5, 100) == 99);
+    CHECK(scaled_source(-500, 50, 1, 100) == 0);
+    CHECK(scaled_source(5000, 50, 1, 100) == 99);
+}

@@ -6,6 +6,7 @@
 // versions; their game-state effects, where they have any, are noted at the call.
 #include "ui/statuswin.h"
 #include "ui/console.h"
+#include "ui/smoothview.h"
 #include "ui/infowin.h"
 #include "ui/sound.h"
 #include "ui/mapwin.h"
@@ -1446,6 +1447,8 @@ void THISCALL pfncProcZoomKey(uint8_t*, int32_t command, int32_t index) {
     for_each_mapwin([&](int32_t i, uint8_t* w) {
         if (index >= 0 && i != index) return;
         int32_t& zoom = map_win(w).zoom;
+        smoothview::ZoomFrom from;
+        const bool smooth = smoothview::zoom_capture(w, &from);
         switch (command) {
         case 0x203:
             if (zoom < 0x10) zoom += 2;
@@ -1459,7 +1462,8 @@ void THISCALL pfncProcZoomKey(uint8_t*, int32_t command, int32_t index) {
         case 0x208: zoom = -0xE; break;
         default: break;
         }
-        pfncRedrawMap(w, 1);
+        if (smooth) smoothview::zoom_glide(w, from);
+        else pfncRedrawMap(w, 1);
     });
     GraphicWin_redraw(&WorldWin);
 }

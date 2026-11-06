@@ -54,6 +54,15 @@ check smooth_pan "settled on the grid" "viewcheck: panning 0 offset 0,0: [0-9]+ 
 run smooth_edge --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,MOVE:1023x300,WAIT:400,VIEWCHECK,MOVE:500x300,WAIT:600,VIEWCHECK"
 check smooth_edge "the mouse at the edge pans" "viewcheck: panning 1 offset"
 check smooth_edge "and stops when it leaves" "viewcheck: panning 0 offset 0,0"
+# A change of zoom keeps the map point at the screen's centre: the tile followed comes back to within
+# a pixel or two after zooming in and out, and is found where it is drawn. The original's moves
+# it by up to a tile at each step. (Away from the map's edge: there the view stays inside the map.)
+run smooth_zoom --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,S-UP,WAIT:400,S-UP,WAIT:400,S-UP,WAIT:400,VIEWPOINT,z,WAIT:250,VIEWPOINT,z,WAIT:250,VIEWPOINT,x,WAIT:250,x,WAIT:250,VIEWPOINT,VIEWCHECK"
+check smooth_zoom "the zoom is animated" "view zoom: [0-9]+ frames"
+check smooth_zoom "tiles found after a zoom" "viewcheck: panning 1 offset -?[0-9]+,-?[0-9]+: [0-9]+ tiles, 0 wrong"
+if grep viewpoint "$OUT/smooth_zoom.log" | awk '{split($10, p, ","); x[NR]=p[1]; y[NR]=p[2]} END {d=x[1]-x[NR]; e=y[1]-y[NR]; exit !(NR==4 && d*d<=9 && e*e<=9)}'; then
+    echo "PASS smooth_zoom: the point stays through a zoom in and out"
+else echo "FAIL smooth_zoom: the point moved"; FAIL=1; fi
 run smooth_glide --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,S-RIGHT,WAIT:500,UNITS"
 check smooth_glide "a move of the view glides" "view glide: [0-9]+ frames"
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"

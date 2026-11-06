@@ -677,6 +677,10 @@ bool parse_key(std::string tok, ScriptedKey* out) {
         out->command = "sdlwheel " + tok.substr(9);
         return true;
     }
+    if (tok == "VIEWPOINT") {  // a tile followed across zooms (smoothview.h, test aid)
+        out->command = "viewpoint";
+        return true;
+    }
     if (tok == "VIEWCHECK") {  // the tiles in view against their points (smoothview.h, test aid)
         out->command = "viewcheck";
         return true;
