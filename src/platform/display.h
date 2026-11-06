@@ -38,4 +38,14 @@ struct Mode {
 // which it fits the area.
 Mode choose(const Settings& s, int32_t area_w, int32_t area_h);
 
+// The whole scale at which a frame of the mode's size is shown in a drawable of drawable_w x
+// drawable_h pixels (the renderer's integer scaling); 0 when it does not fit even once.
+int32_t shown_scale(const Mode& m, int32_t drawable_w, int32_t drawable_h);
+// The fullscreen mode: chosen for the drawable the system gave the fullscreen window when it is
+// known (both > 0), else for the display. The drawable can be smaller than the display (a
+// MacBook's notch: the fullscreen window ends below it); a frame laid out for the display would
+// then be shown at a smaller scale, with black around it.
+Mode choose_fullscreen(const Settings& s, int32_t display_w, int32_t display_h, int32_t drawable_w,
+                       int32_t drawable_h);
+
 }  // namespace display

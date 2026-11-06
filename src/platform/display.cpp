@@ -41,4 +41,14 @@ Mode choose(const Settings& s, int32_t area_w, int32_t area_h) {
     return m;
 }
 
+int32_t shown_scale(const Mode& m, int32_t drawable_w, int32_t drawable_h) {
+    return std::max(0, std::min(drawable_w / m.width, drawable_h / m.height));
+}
+
+Mode choose_fullscreen(const Settings& s, int32_t display_w, int32_t display_h, int32_t drawable_w,
+                       int32_t drawable_h) {
+    if (drawable_w > 0 && drawable_h > 0) return choose(s, drawable_w, drawable_h);
+    return choose(s, display_w, display_h);
+}
+
 }  // namespace display

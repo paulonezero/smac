@@ -505,19 +505,37 @@ bool video_init_display(const char* title, const display::Settings& settings, in
     }
     int32_t room_w = std::max(1, usable.w - left - right), room_h = std::max(1, usable.h - top - bottom);
     const SDL_Rect area = settings.fullscreen ? full : SDL_Rect{0, 0, room_w, room_h};
-    display::Mode m = display::choose(settings, (int32_t)(area.w * ratio), (int32_t)(area.h * ratio));
+    int32_t area_w = (int32_t)(area.w * ratio), area_h = (int32_t)(area.h * ratio);
+    display::Mode m;
+    if (settings.fullscreen) {
+        // Fullscreen: the window the display's size first (a system without a window manager may
+        // not resize it for the fullscreen request), then the mode for the drawable the system
+        // gave it (smaller than the display below a MacBook's notch).
+        SDL_SetWindowSize(g_window, full.w, full.h);
+        SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+        SDL_ShowWindow(g_window);
+        SDL_PumpEvents();
+        int dw = 0, dh = 0;
+        if (SDL_GetRendererOutputSize(g_renderer, &dw, &dh) != 0) dw = dh = 0;
+        m = display::choose_fullscreen(settings, area_w, area_h, dw, dh);
+        if (dw > 0 && dh > 0) {
+            area_w = dw;
+            area_h = dh;
+        }
+    } else {
+        m = display::choose(settings, area_w, area_h);
+    }
     g_width = m.width;
     g_height = m.height;
     // The window when windowed: the frame at its scale, no bigger than the room.
     g_windowed_w = std::min(room_w, (int32_t)(m.width * m.scale / ratio));
     g_windowed_h = std::min(room_h, (int32_t)(m.height * m.scale / ratio));
-    // Fullscreen: the window the display's size first (a system without a window manager may not
-    // resize it for the fullscreen request).
-    if (settings.fullscreen) SDL_SetWindowSize(g_window, full.w, full.h);
-    else SDL_SetWindowSize(g_window, g_windowed_w, g_windowed_h);
-    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-    if (settings.fullscreen) SDL_SetWindowFullscreen(g_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-    SDL_ShowWindow(g_window);
+    if (!settings.fullscreen) {
+        SDL_SetWindowSize(g_window, g_windowed_w, g_windowed_h);
+        SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        SDL_ShowWindow(g_window);
+    }
     g_texture =
         SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, g_width, g_height);
     update_scaling();
@@ -525,8 +543,7 @@ bool video_init_display(const char* title, const display::Settings& settings, in
     g_alt_enter = true;
     g_on_fullscreen = on_fullscreen;
     std::fprintf(stderr, "display: %dx%d at %d (%s, %dx%d pixels per window unit %.2f)\n", g_width, g_height,
-                 m.scale, settings.fullscreen ? "fullscreen" : "windowed", (int)(area.w * ratio),
-                 (int)(area.h * ratio), ratio);
+                 m.scale, settings.fullscreen ? "fullscreen" : "windowed", area_w, area_h, ratio);
     *width = g_width;
     *height = g_height;
     return g_texture != nullptr;

@@ -73,3 +73,24 @@ TEST_CASE("display: sizes and scales given") {
     m = choose(s, 1920, 1080);  // at least 1024 x 768
     CHECK((m.width == 1024 && m.height == 768 && m.scale == 1));
 }
+
+TEST_CASE("display: fullscreen below a notch") {
+    // A MacBook Air at 1470 x 956 points (2940 x 1912 pixels): the fullscreen window ends below
+    // the notch, its drawable is 2940 x 1846. A frame laid out for the display fits it only once
+    // (shown at a quarter of the screen, black around it); the mode must be the drawable's.
+    Mode for_display = choose(Settings{}, 2940, 1912);
+    CHECK(display::shown_scale(for_display, 2940, 1846) == 1);
+    Mode m = display::choose_fullscreen(Settings{}, 2940, 1912, 2940, 1846);
+    CHECK((m.width == 1470 && m.height == 923 && m.scale == 2));
+    CHECK(display::shown_scale(m, 2940, 1846) == m.scale);
+    // The drawable unknown: the display's mode, as before.
+    m = display::choose_fullscreen(Settings{}, 2940, 1912, 0, 0);
+    CHECK((m.width == 1470 && m.height == 956 && m.scale == 2));
+    // A size given: the scale at which it fits the drawable.
+    Settings s;
+    s.width = 1280;
+    s.height = 800;
+    m = display::choose_fullscreen(s, 2940, 1912, 2940, 1846);
+    CHECK((m.width == 1280 && m.height == 800 && m.scale == 2));
+    CHECK(display::shown_scale(m, 2940, 1846) == 2);
+}
