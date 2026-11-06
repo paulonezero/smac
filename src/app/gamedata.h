@@ -28,7 +28,8 @@ bool check_game_dir(const std::string& dir, std::string* why);
 // is moved there on the first start (platform/userdir.h).
 std::string user_dir();
 
-// The game folder: the remembered one (user_dir/opensmac.cfg), the OPENSMAC_GAMEDIR environment
+// The game folder: one shipped with the program ("game" beside the executable; a macOS bundle's
+// Contents/Resources/game), the remembered one (user_dir/opensmac.cfg), the OPENSMAC_GAMEDIR environment
 // variable, the standard install locations, else the player is asked (message box, the
 // platform's folder picker, a typed path on a terminal). The choice is remembered. Empty when
 // none was found or the player gave up (the reason is on stderr and was shown).

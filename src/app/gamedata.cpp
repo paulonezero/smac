@@ -537,6 +537,22 @@ std::string user_dir() {
 
 std::string find_game_dir(const std::string& udir) {
     std::string why, first_problem;
+    // A game folder shipped with the program: "game" beside the executable, in a macOS
+    // application bundle Contents/Resources/game (SDL_GetBasePath). A self-contained copy plays
+    // from it; it is not remembered, so other copies keep their own folder.
+    if (char* base = SDL_GetBasePath()) {
+        std::string bundled = std::string(base) + "game";
+        SDL_free(base);
+        std::error_code ec;
+        if (fs::is_directory(bundled, ec)) {
+            if (check_game_dir(bundled, &why)) {
+                std::fprintf(stderr, "opensmac: game found with the program in %s\n", bundled.c_str());
+                return bundled;
+            }
+            std::fprintf(stderr, "opensmac: skipping %s: %s\n", bundled.c_str(), why.c_str());
+            first_problem = why;
+        }
+    }
     std::string remembered = config_get(udir, "gamedir");
     if (!remembered.empty()) {
         if (check_game_dir(remembered, &why)) return remembered;
