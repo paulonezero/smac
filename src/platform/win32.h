@@ -7,6 +7,8 @@
 // Paths may use '\\' or '/' separators; native builds treat both as directory separators.
 #pragma once
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace win32 {
 
@@ -53,4 +55,11 @@ void set_saves_dir(const char* dir);
 // A file OpenSMAC provides (e.g. its own script texts): a path ending in `name` (any directory, any
 // case) that does not exist resolves to host_path.
 void set_builtin_file(const char* name, const char* host_path);
+// The mods folder (OpenSMAC): a relative path that names a file below dir (any case, sub-folders
+// as in the game folder) resolves to that file, so a file there replaces the game's of that name
+// or adds one. Never looked up there: "saves", paths with ".." and absolute paths. Empty: none.
+void set_mods_dir(const char* dir);
+// The files of a mods folder as the game names them (relative, '/' separators, sorted). Hidden
+// files and folders and a README.md at the top are not game files and are left out.
+std::vector<std::string> mods_files(const char* dir);
 }  // namespace platform

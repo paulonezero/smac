@@ -3,7 +3,7 @@
 //   opensmac [--new [k=v ...] | --save FILE.sav] [--human N] [--viewer N] [--seed CRT,GAME|clock]
 //         [--keys K1,K2,...] [--exit-after-keys] [--animate] [--turns N] [--shot FILE.bmp] [--snapshots DIR]
 //         [--rng FILE] [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR]
-//         [--gamedir DIR] [--image FILE] [--ini FILE] [--nosound] [--original-bugs]
+//         [--gamedir DIR] [--image FILE] [--ini FILE] [--nosound] [--original-bugs] [--mods DIR|none]
 //
 // The screen. Interactive play (no --hidden, --keys, --size, --shot, --dump or --basedump) takes the
 // ini's display settings ([Alpha Centauri] Screen Size = auto | WxH, UI Scale = auto | 1 | 2 | 3,
@@ -27,6 +27,11 @@
 // defaults are the repository's (game, src/data/data_image.bin,
 // harness/oracle/runtime/Alpha Centauri.Ini), everything is written below --outdir and the game's
 // saves folder is the game directory's; the ini is copied from --ini at every start.
+//
+// Mods. A folder whose files replace the game's of the same name (any case, sub-folders as in the
+// game folder) or add to them (platform::set_mods_dir, win32.h): a player's game uses "mods"
+// beside the game folder when there is one; --mods DIR names another, --mods none plays without.
+// Runs with --outdir use none unless --mods is given. The files are listed on stderr at start.
 //
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
@@ -149,6 +154,8 @@ namespace {
 
 struct Options {
     std::string save, gamedir, image, ini, outdir, shot, snapshots, rng;  // defaults: main
+    std::string mods;  // --mods DIR ("none": no mods folder)
+    bool mods_given = false;
     std::string dump, like;  // --dump FILE [--like REF]: map canvas dump (ui_mapdump_like)
     std::string basedump;  // --basedump BASE:FILE: the base window's canvases (the oracle's basedump)
     int scroll_x = -1, scroll_y = -1;  // --scroll-from X,Y: the dump's redraw scrolls from there
@@ -731,7 +738,8 @@ int usage() {
         "                [--keys K1,K2,..] [--exit-after-keys] [--animate] [--turns N] [--shot FILE.bmp]\n"
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
-        "                [--image FILE] [--ini FILE] [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
+        "                [--image FILE] [--ini FILE] [--mods DIR|none]\n"
+        "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
         "                [--nosound] [--original-bugs]\n");
     return 2;
@@ -758,7 +766,10 @@ int main(int argc, char** argv) {
                 return 2;
             }
         } else if (a == "--gamedir") g_opt.gamedir = next();
-        else if (a == "--image") g_opt.image = next();
+        else if (a == "--mods") {
+            g_opt.mods = next();
+            g_opt.mods_given = true;
+        } else if (a == "--image") g_opt.image = next();
         else if (a == "--ini") g_opt.ini = next();
         else if (a == "--outdir") g_opt.outdir = next();
         else if (a == "--viewer") g_opt.viewer = std::atoi(next().c_str());
@@ -808,6 +819,7 @@ int main(int argc, char** argv) {
         fs::create_directories(g_opt.snapshots);
     }
     std::string ini_copy;  // the ini the game reads and writes
+    const bool played = g_opt.outdir.empty();  // a player's game, not a test or harness run
     if (!g_opt.outdir.empty()) {
         // Tests and the harness: the repository's files; the ini is a fresh copy of --ini at every
         // start, so that a run's preferences never carry over into the next run in the same outdir.
@@ -857,8 +869,36 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "cannot load data image %s\n", g_opt.image.c_str());
         return 2;
     }
+    // The mods folder: --mods DIR, else for a player's game "mods" beside the game folder (in the
+    // application bundle Contents/Resources/mods). Tests and the harness play the game's own
+    // files unless --mods is given. Its files replace the game's of the same name or add to them.
+    std::string mods_dir;
+    if (g_opt.mods_given) {
+        if (g_opt.mods != "none") mods_dir = fs::absolute(g_opt.mods).lexically_normal().string();
+    } else if (played) {
+        fs::path g = fs::absolute(g_opt.gamedir).lexically_normal();
+        if (!g.has_filename()) g = g.parent_path();
+        mods_dir = (g.parent_path() / "mods").string();
+    }
     fs::current_path(g_opt.gamedir);
     platform::set_game_dir(".");
+    if (!mods_dir.empty()) {
+        std::error_code ec;
+        if (fs::is_directory(mods_dir, ec)) {
+            std::vector<std::string> files = platform::mods_files(mods_dir.c_str());
+            std::fprintf(stderr, "opensmac: mods folder %s: %zu file%s\n", mods_dir.c_str(), files.size(),
+                         files.size() == 1 ? "" : "s");
+            for (const std::string& f : files) {  // before the folder is set: the game's own file
+                char host[1024];
+                bool in_game = platform::host_stat(platform::resolve_path(f.c_str(), host, sizeof(host)), nullptr, nullptr);
+                std::fprintf(stderr, "opensmac:   %s %s\n", in_game ? "replaces" : "adds", f.c_str());
+            }
+            if (!files.empty()) platform::set_mods_dir(mods_dir.c_str());
+        } else if (g_opt.mods_given) {
+            std::fprintf(stderr, "opensmac: --mods: %s is not a folder\n", mods_dir.c_str());
+            return 2;
+        }
+    }
     engine_static_init(ini_copy.c_str());
     // The original's bugs or their fixes (engine/compat.h): --original-bugs, else the ini's key.
     {

@@ -6,6 +6,7 @@
 // timeGetTime (SDL_GetTicks) and GDI text output (SDL_ttf, rendered without antialiasing as GDI
 // does on an 8-bit DIB). Portable to Linux, macOS and Windows; nothing X11-specific.
 #include "platform/ui_platform.h"
+#include "platform/win32.h"
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -407,6 +408,10 @@ std::string find_font_file(const char* face, bool bold, bool italic) {
     for (const auto& n : names) {
         for (const char* d : dirs) {
             std::string p = (d ? std::string(d) : g_game_dir) + "/" + n;
+            if (!d) {  // the game's font file: the mods folder's when it has one
+                char host[1024];
+                p = platform::resolve_path(p.c_str(), host, sizeof(host));
+            }
             if (file_ok(p)) return p;
         }
     }

@@ -5,6 +5,7 @@
 #include <cstring>
 
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -96,35 +97,20 @@ bool host_mkdir(const char* path) {
 
 namespace {
 std::string g_saves_dir;  // set_saves_dir
+std::string g_mods_dir;  // set_mods_dir
 std::vector<std::pair<std::string, std::string>> g_builtin_files;  // set_builtin_file
-}  // namespace
 
-void set_builtin_file(const char* name, const char* host_path) {
-    g_builtin_files.emplace_back(name, host_path);
+void slashes(std::string* dir) {
+    for (char& c : *dir)
+        if (c == '\\') c = '/';
+    while (dir->size() > 1 && dir->back() == '/') dir->pop_back();
 }
 
-void set_saves_dir(const char* dir) {
-    g_saves_dir = dir ? dir : "";
-    for (char& c : g_saves_dir)
-        if (c == '\\') c = '/';
-    while (g_saves_dir.size() > 1 && g_saves_dir.back() == '/') g_saves_dir.pop_back();
-}
-
-const char* resolve_path(const char* path, char* out, uint32_t out_size) {
-    std::string p(path);
-    for (char& c : p)
-        if (c == '\\') c = '/';
-    if (!g_saves_dir.empty() && p.size() >= 5 && ieq(p.substr(0, 5), "saves") && (p.size() == 5 || p[5] == '/')) {
-        p = g_saves_dir + p.substr(5);
-        std::error_code ec;
-        fs::create_directories(g_saves_dir, ec);  // made when first used
-    }
-    std::string result;
-    size_t pos = 0;
-    if (!p.empty() && p[0] == '/') {
-        result = "/";
-        pos = 1;
-    }
+// Appends p's components from pos to *result ("" stands for the current directory), each matched
+// case-insensitively against the file system. False when a component matches nothing: the rest
+// is appended as given.
+bool walk_ci(const std::string& p, size_t pos, std::string* result_io) {
+    std::string& result = *result_io;
     bool ok = true;
     while (pos <= p.size()) {
         size_t e = p.find('/', pos);
@@ -151,6 +137,91 @@ const char* resolve_path(const char* path, char* out, uint32_t out_size) {
         if (e == std::string::npos) break;
         pos = e + 1;
     }
+    return ok;
+}
+
+// Whether p (separators converted) may be looked up in the mods folder: relative, no "..", and
+// not the saves folder.
+bool mods_path(const std::string& p) {
+    if (p.empty() || p[0] == '/' || (p.size() > 1 && p[1] == ':')) return false;
+    size_t pos = 0;
+    bool first = true;
+    while (pos <= p.size()) {
+        size_t e = p.find('/', pos);
+        std::string comp = p.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+        if (comp == "..") return false;
+        if (!comp.empty() && comp != ".") {
+            if (first && ieq(comp, "saves")) return false;
+            first = false;
+        }
+        if (e == std::string::npos) break;
+        pos = e + 1;
+    }
+    return !first;  // at least one name
+}
+}  // namespace
+
+void set_builtin_file(const char* name, const char* host_path) {
+    g_builtin_files.emplace_back(name, host_path);
+}
+
+void set_saves_dir(const char* dir) {
+    g_saves_dir = dir ? dir : "";
+    slashes(&g_saves_dir);
+}
+
+void set_mods_dir(const char* dir) {
+    g_mods_dir = dir ? dir : "";
+    slashes(&g_mods_dir);
+}
+
+std::vector<std::string> mods_files(const char* dir) {
+    std::vector<std::string> files;
+    std::error_code ec;
+    fs::path root(dir ? dir : "");
+    if (!fs::is_directory(root, ec)) return files;
+    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::string name = it->path().filename().string();
+        if (!name.empty() && name[0] == '.') {
+            if (it->is_directory(ec)) it.disable_recursion_pending();
+            continue;
+        }
+        if (!it->is_regular_file(ec)) continue;
+        std::string rel = it->path().lexically_relative(root).generic_string();
+        if (ieq(rel, "README.md")) continue;
+        files.push_back(rel);
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+const char* resolve_path(const char* path, char* out, uint32_t out_size) {
+    std::string p(path);
+    for (char& c : p)
+        if (c == '\\') c = '/';
+    bool saves = false;
+    if (!g_saves_dir.empty() && p.size() >= 5 && ieq(p.substr(0, 5), "saves") && (p.size() == 5 || p[5] == '/')) {
+        p = g_saves_dir + p.substr(5);
+        std::error_code ec;
+        fs::create_directories(g_saves_dir, ec);  // made when first used
+        saves = true;
+    }
+    // A file of this name in the mods folder comes first.
+    if (!g_mods_dir.empty() && !saves && mods_path(p)) {
+        std::string mod = g_mods_dir;
+        std::error_code ec;
+        if (walk_ci(p, 0, &mod) && fs::is_regular_file(mod, ec)) {
+            std::snprintf(out, out_size, "%s", mod.c_str());
+            return out;
+        }
+    }
+    std::string result;
+    size_t pos = 0;
+    if (!p.empty() && p[0] == '/') {
+        result = "/";
+        pos = 1;
+    }
+    bool ok = walk_ci(p, pos, &result);
     if (!ok && !g_builtin_files.empty()) {
         size_t slash = p.find_last_of('/');
         std::string file = slash == std::string::npos ? p : p.substr(slash + 1);
