@@ -77,6 +77,7 @@ Settings in Alpha Centauri.Ini, section [Alpha Centauri] (read at start):
   UI Scale=auto        1, 2 or 3: the size of each game pixel on the display (auto: the
                        largest that leaves the game at least 768 pixels high)
   Fullscreen=1         0: in a window
+  Smooth Scroll=1      0: the map view moves in the original's steps
 
 The start option --size WxH (e.g. --size 1280x1024) overrides them for one run, in a window.
 

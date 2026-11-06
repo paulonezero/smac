@@ -8,6 +8,7 @@
 #include "ui/pulldown.h"
 #include "ui/texture.h"
 #include "ui/sprites.h"
+#include "ui/smoothview.h"
 #include "ui/sound.h"
 
 #include <algorithm>
@@ -215,6 +216,15 @@ bool run_command(const std::string& cmd) {
         platform::key_inject(arg.size() == 1 ? (uint8_t)arg[0] : std::atoi(arg.c_str()));
         return true;
     }
+    if (cmd.rfind("sdlwheel", 0) == 0) {  // SDLWHEEL:X,Y, a scroll through the platform's input path
+        float x = 0, y = 0;
+        if (std::sscanf(arg.c_str(), "%f/%f", &x, &y) == 2) platform::wheel_inject(x, y);
+        return true;
+    }
+    if (cmd == "viewcheck") {  // VIEWCHECK, the tiles in view against their points (smoothview.h)
+        smoothview::check();
+        return true;
+    }
     if (cmd.rfind("shot", 0) == 0) {
         std::string path = arg;
         if (path.empty()) {
@@ -414,6 +424,8 @@ bool pump_platform(int32_t timeout_ms) {
             // Win_OnRButtonDown): the music hears every key and click.
             if (ev.type != platform::EV_LBUTTON_UP && ev.type != platform::EV_RBUTTON_UP) input_callback();
             g_input.push_back(ev);
+        } else if (ev.type == platform::EV_MOUSE_WHEEL) {
+            smoothview::wheel(ev.wheel_x, ev.wheel_y);
         } else if (ev.type == platform::EV_MOUSE_MOVE) {  // the latest position only
             if (!g_input.empty() && g_input.back().type == platform::EV_MOUSE_MOVE) g_input.back() = ev;
             else g_input.push_back(ev);
@@ -620,6 +632,8 @@ static void draw_bubble(Buffer* s) {
 // windows draw into their buffers); here a present from inside a present only leaves the screen
 // to be shown again later.
 static bool g_presenting = false;
+bool ui_presenting() { return g_presenting; }
+void ui_map_clean() { g_map_dirty = false; }
 
 void ui_present() {
     if (!g_ready) return;
@@ -706,6 +720,7 @@ void ui_script_keys(const std::vector<ScriptedKey>& keys) {
 
 // Mouse input of the main screen: the base window when it is open, else the console.
 static void ui_mouse(int32_t type, int32_t x, int32_t y) {
+    if (type == UiInput::MOVE) smoothview::mouse(x, y);
     if (basewin_mouse(type, x, y, false, type == UiInput::RDOWN || type == UiInput::RUP)) return;
     console_ui_mouse(type, x, y);
 }
@@ -851,7 +866,8 @@ void GAMEAPI wait_task() {
         ControlTurnA = 1;
         return;
     }
-    if (g_input.empty()) pump_platform(20);
+    smoothview::tick();
+    if (g_input.empty()) pump_platform(smoothview::busy() ? 1 : 20);
     if (g_input.empty()) return;
     platform::Event ev = g_input.front();
     g_input.pop_front();

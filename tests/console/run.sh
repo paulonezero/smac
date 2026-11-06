@@ -46,6 +46,16 @@ check keys "hold: order 2" "unit 4 f1 Scout Patrol \(35,7\) order 2 "
 # it): a punctuation key without a virtual-key code never reached the game.
 run keys_sdl $NEW --keys "ENTER,SDLKEY:/,WAIT:300,UNITS"
 check keys_sdl "explore by the / key" "unit 4 f1 Scout Patrol \([0-9]+,[0-9]+\) order [0-9]+ moves [0-9]+ state 0400?4"
+# The smooth map view (--smooth; ui/smoothview.h): off the tile grid while it pans, every tile found
+# where it is drawn, back on the grid when it stops. MOVE: the mouse at a screen edge pans too.
+run smooth_pan --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,SDLWHEEL:5/-3,WAIT:80,VIEWCHECK,WAIT:600,VIEWCHECK"
+check smooth_pan "panned off the grid, tiles found" "viewcheck: panning 1 offset -?[0-9]+,-?[0-9]+: [0-9]+ tiles, 0 wrong"
+check smooth_pan "settled on the grid" "viewcheck: panning 0 offset 0,0: [0-9]+ tiles, 0 wrong"
+run smooth_edge --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,MOVE:1023x300,WAIT:400,VIEWCHECK,MOVE:500x300,WAIT:600,VIEWCHECK"
+check smooth_edge "the mouse at the edge pans" "viewcheck: panning 1 offset"
+check smooth_edge "and stops when it leaves" "viewcheck: panning 0 offset 0,0"
+run smooth_glide --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,S-RIGHT,WAIT:500,UNITS"
+check smooth_glide "a move of the view glides" "view glide: [0-9]+ frames"
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys
 

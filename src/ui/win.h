@@ -60,6 +60,8 @@ bool ui_screenshot(const std::string& path);
 // windows over black, without the map view and the console (topmenu.cpp).
 void ui_set_desktop(bool on);
 bool ui_desktop();
+bool ui_presenting();  // ui_present is composing the screen
+void ui_map_clean();  // the view's canvas is up to date: no redraw owed
 // Palette layers: under GDI each of the original's windows shows through its own DIB colour table
 // (the opening pictures, the menu items' animation, the faction portraits). Layer n (1..3) is shown
 // through `palette` (null: off); ui_layer_mark marks the pixels of `src` placed at (x0, y0) that

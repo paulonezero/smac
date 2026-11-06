@@ -40,6 +40,7 @@
 #include "engine/veh.h"
 #include "engine/zoc.h"
 #include "platform/ui_platform.h"
+#include "ui/smoothview.h"
 #include "ui/pulldown.h"
 #include "ui/help.h"
 #include "ui/infowin.h"
@@ -985,7 +986,8 @@ void worldwin_draw_to(Buffer* c) {
     }
     // WorldWin_draw_box: the main view's tiles.
     uint8_t* main = MapWins[0];
-    if (!main || !map_win(main).cols_odd || map_win(main).pixel_x || map_win(main).pixel_y) return;
+    if (!main || !map_win(main).cols_odd) return;
+    if ((map_win(main).pixel_x || map_win(main).pixel_y) && !smoothview::panning()) return;
     int32_t x1, y1, x2, y2;
     if (worldwin_tile_to_pixel(map_win(main).origin_x, map_win(main).origin_y, &x1, &y1)) return;
     if (worldwin_tile_to_pixel(map_win(main).cols_even + map_win(main).origin_x + map_win(main).cols_odd,

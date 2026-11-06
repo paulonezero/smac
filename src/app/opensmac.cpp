@@ -33,6 +33,9 @@
 // beside the game folder when there is one; --mods DIR names another, --mods none plays without.
 // Runs with --outdir use none unless --mods is given. The files are listed on stderr at start.
 //
+// The map view. A player's game moves it smoothly (ui/smoothview.h) unless the ini's "Smooth Scroll"
+// ([Alpha Centauri] section) is 0; runs with --outdir move it as the original unless --smooth is given.
+//
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
 // loads a game, and control_turn plays the turns. --new (the harness's newgame keys: size, width,
@@ -78,7 +81,9 @@
 // the last line a WAITFOR matched; 300 s at most), WAIT:MS (no
 // scripted input for MS ms: the waiting loop runs its timers and animations as for a player who
 // waits), SDLKEY:C or SDLKEY:CODE (a key press through the platform's input path, as from the
-// keyboard: the other tokens skip that path; follow it with a WAIT so that it is read), QUIT. --exit-after-keys (default with --hidden) quits when they run out.
+// keyboard: the other tokens skip that path; follow it with a WAIT so that it is read), SDLWHEEL:X/Y
+// (a scroll through the same path), VIEWCHECK (every tile in view against its point, ui/smoothview.h),
+// QUIT. --exit-after-keys (default with --hidden) quits when they run out.
 // Such unattended runs skip the animations (window slides, unit moves, booms, battle reports,
 // movies); --animate (or OPENSMAC_ANIMATE=1) plays them all with their waits as an interactive game
 // does and still quits at the end of the keys (the test suites' default; TEST_FAST=1: unattended).
@@ -137,6 +142,7 @@
 #include "platform/display.h"
 #include "platform/ui_platform.h"
 #include "platform/win32.h"
+#include "ui/smoothview.h"
 #include "ui/console.h"
 #include "ui/diplowin.h"
 #include "ui/gfx.h"
@@ -157,6 +163,7 @@ struct Options {
     std::string save, gamedir, image, ini, outdir, shot, snapshots, rng;  // defaults: main
     std::string mods;  // --mods DIR ("none": no mods folder)
     bool mods_given = false;
+    bool smooth = false;  // --smooth: the smooth map view in a test run
     std::string dump, like;  // --dump FILE [--like REF]: map canvas dump (ui_mapdump_like)
     std::string basedump;  // --basedump BASE:FILE: the base window's canvases (the oracle's basedump)
     int scroll_x = -1, scroll_y = -1;  // --scroll-from X,Y: the dump's redraw scrolls from there
@@ -666,6 +673,14 @@ bool parse_key(std::string tok, ScriptedKey* out) {
         out->command = "waitfor " + tok.substr(8);
         return true;
     }
+    if (tok.rfind("SDLWHEEL:", 0) == 0) {  // SDLWHEEL:X/Y, a scroll through the platform (test aid)
+        out->command = "sdlwheel " + tok.substr(9);
+        return true;
+    }
+    if (tok == "VIEWCHECK") {  // the tiles in view against their points (smoothview.h, test aid)
+        out->command = "viewcheck";
+        return true;
+    }
     if (tok.rfind("SDLKEY:", 0) == 0) {  // SDLKEY:C or SDLKEY:CODE, a key through the platform (test aid)
         out->command = "sdlkey " + tok.substr(7);
         return true;
@@ -743,7 +758,7 @@ int usage() {
         "                [--keys K1,K2,..] [--exit-after-keys] [--animate] [--turns N] [--shot FILE.bmp]\n"
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
-        "                [--image FILE] [--ini FILE] [--mods DIR|none]\n"
+        "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth]\n"
         "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
         "                [--nosound] [--original-bugs]\n");
@@ -774,6 +789,8 @@ int main(int argc, char** argv) {
         else if (a == "--mods") {
             g_opt.mods = next();
             g_opt.mods_given = true;
+        } else if (a == "--smooth") {
+            g_opt.smooth = true;
         } else if (a == "--image") g_opt.image = next();
         else if (a == "--ini") g_opt.ini = next();
         else if (a == "--outdir") g_opt.outdir = next();
@@ -911,6 +928,13 @@ int main(int argc, char** argv) {
         win32::GetPrivateProfileStringA("Alpha Centauri", "Original Bugs", "0", buf, sizeof(buf), ini_copy.c_str());
         compat_set_original_bugs(g_opt.original_bugs || std::atoi(buf) != 0);
         g_original_bugs_forced = g_opt.original_bugs;
+    }
+    // The smooth map view (ui/smoothview.h): a player's game unless the ini's "Smooth Scroll" is 0;
+    // tests and the harness only with --smooth.
+    {
+        char buf[16] = "";
+        win32::GetPrivateProfileStringA("Alpha Centauri", "Smooth Scroll", "1", buf, sizeof(buf), ini_copy.c_str());
+        smoothview::set_enabled(g_opt.smooth || (played && std::atoi(buf) != 0), g_opt.smooth);
     }
     // The harness's deterministic clock (engine/clock.h): the same keys give the same game.
     engine_set_deterministic(true);

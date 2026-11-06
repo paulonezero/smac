@@ -1,5 +1,6 @@
 // Map window geometry and terrain rendering (see mapwin.h).
 #include "ui/mapwin.h"
+#include "ui/smoothview.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -332,6 +333,7 @@ void THISCALL pfncZoomProcessing(uint8_t* win) {
             Font_init(f1, "Arial", s, 1);
         }
     }
+    smoothview::apply(win);
 }
 
 int32_t THISCALL pfncPtToTile(uint8_t* win, int32_t px, int32_t py, int32_t* out_x, int32_t* out_y) {
@@ -839,10 +841,17 @@ void THISCALL pfncMoveMap(uint8_t* win, int32_t x, int32_t y, int32_t redraw) {
         if (x & 1) x--;
         if (y & 1) x++;
     }
+    const bool panned = smoothview::panning();
+    smoothview::Pos from;
+    const bool smooth = smoothview::capture(win, &from);
     int32_t cy0 = map_win(win).center_y, cx0 = map_win(win).center_x;
     map_win(win).center_x = (MapToggleFlat & 1) ? x : wrap_x(x);
     map_win(win).center_y = y;
     // (the main view's destination marker, TutWin_reset and the world window's follow-up are
     // not reconstructed)
-    if (cx0 != map_win(win).center_x || cy0 != map_win(win).center_y) pfncRedrawMap(win, redraw);
+    if (smooth && (panned || cx0 != map_win(win).center_x || cy0 != map_win(win).center_y)) {
+        smoothview::glide(win, from, redraw);
+    } else if (panned || cx0 != map_win(win).center_x || cy0 != map_win(win).center_y) {
+        pfncRedrawMap(win, redraw);
+    }
 }

@@ -178,7 +178,9 @@ bool translate(const SDL_Event& e, Event* ev) {
     case SDL_MOUSEWHEEL:
         ev->type = EV_MOUSE_WHEEL;
         ev->key = e.wheel.y > 0 ? 1 : -1;
-        return e.wheel.y != 0;
+        ev->wheel_x = e.wheel.preciseX;
+        ev->wheel_y = e.wheel.preciseY;
+        return e.wheel.preciseX != 0 || e.wheel.preciseY != 0;
     case SDL_WINDOWEVENT:
         if (e.window.event == SDL_WINDOWEVENT_EXPOSED || e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
             if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) update_scaling();
@@ -422,6 +424,16 @@ std::string find_font_file(const char* face, bool bold, bool italic) {
 }  // namespace
 
 void set_game_dir(const std::string& dir) { g_game_dir = dir; }
+
+void wheel_inject(float x, float y) {
+    SDL_Event e{};
+    e.type = SDL_MOUSEWHEEL;
+    e.wheel.preciseX = x;
+    e.wheel.preciseY = y;
+    SDL_PushEvent(&e);
+}
+
+bool window_focused() { return g_window && SDL_GetKeyboardFocus() == g_window && SDL_GetMouseFocus() == g_window; }
 
 void key_inject(int32_t keycode) {
     SDL_Event e{};

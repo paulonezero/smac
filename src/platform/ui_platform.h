@@ -65,6 +65,7 @@ struct Event {
     int32_t key = 0;
     int32_t mods = 0;
     int32_t x = 0, y = 0;
+    float wheel_x = 0, wheel_y = 0;  // EV_MOUSE_WHEEL: the scroll, in fractions on a trackpad
 };
 // Next pending event (PeekMessage); false when none.
 bool poll_event(Event* ev);
@@ -75,6 +76,10 @@ bool key_down(int32_t vk);
 // Test aid: a key press and release as the keyboard delivers them (keycode: the backend's, for
 // the SDL backend an unshifted character is its own code), through the whole input path.
 void key_inject(int32_t keycode);
+// Test aid: a scroll as the mouse or trackpad delivers it.
+void wheel_inject(float x, float y);
+// The game's window has the keyboard and the mouse (no scrolling at a screen edge otherwise).
+bool window_focused();
 
 // ---- clock (timeGetTime) ----
 uint32_t ticks_ms();
