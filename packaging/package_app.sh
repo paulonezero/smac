@@ -7,6 +7,7 @@
 #
 # Options: --out DIR    where the app goes (default build/app)
 #          --name NAME  the app's name (default "Alpha Centauri")
+#          --mods DIR   the mods folder to put in (default mods; "none": the original game only)
 #
 # PRIVATE USE ONLY: the app contains the copyrighted game. Unlike packaging/package.sh (the
 # releases, which must never hold game data) its result is not for distribution.
@@ -19,6 +20,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/build/app"
 name="Alpha Centauri"
 apply=0
+mods="$root/mods"
 bundle_id="local.opensmac.alpha-centauri"   # marks an app as made by this script
 exe_md5="cc659f53cb6fa0eaaddccd0a54176647"  # terranx.exe v2.0 (gamedata::kExeMd5)
 
@@ -27,7 +29,8 @@ while [ $# -gt 0 ]; do
     --apply) apply=1 ;;
     --out) out="$2"; shift ;;
     --name) name="$2"; shift ;;
-    -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --mods) mods="$2"; shift ;;
+    -h | --help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "package_app: unknown option $1 (see --help)" >&2; exit 1 ;;
     esac
     shift
@@ -57,12 +60,23 @@ version="${version:-0.0.0}"
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then commit="$commit+changes"; fi
 game_files=$(find "$game" -type f ! -path "$game/saves/*" ! -name .DS_Store | wc -l | tr -d ' ')
+# The mods folder's files as OpenSMAC counts them (platform::mods_files): no hidden files or
+# folders, no README.md at the top.
+mods_list() { (cd "$mods" && find . -type f ! -path '*/.*' ! -path ./README.md | sed 's|^\./||' | sort); }
+mod_files=0
+if [ "$mods" != none ]; then
+    [ -d "$mods" ] || die "mods folder not found: $mods (--mods none packages the original game only)"
+    mods="$(cd "$mods" && pwd)"
+    mod_files=$(mods_list | wc -l | tr -d ' ')
+fi
 
 if [ "$apply" = 0 ]; then
     echo "package_app: dry run (nothing is written; --apply does it)"
     say "would: bring build/native/opensmac up to date (make)"
     if [ -e "$app" ]; then say "would: replace $app"; else say "would: create $app"; fi
     say "would: put in it opensmac $version ($commit), SDL2 and SDL2_ttf, $game_files game files ($(du -sh "$game" | cut -f1 | tr -d ' '))"
+    if [ "$mod_files" -gt 0 ]; then say "would: put in $mod_files mod file(s) from $mods: $(mods_list | tr '\n' ' ')"
+    else say "would: put in no mods (none in ${mods})"; fi
     say "would: sign it ad hoc, verify the signature and play five hidden turns from the bundle"
     exit 0
 fi
@@ -116,6 +130,15 @@ rm -rf "$c/Resources/game/saves"
 find "$c/Resources/game" \( -name .DS_Store -o -type l \) -delete
 mkdir "$c/Resources/game/saves"
 
+# Our mods beside the game (Contents/Resources/mods), where the app looks for them.
+if [ "$mod_files" -gt 0 ]; then
+    say "copying $mod_files mod file(s): $(mods_list | tr '\n' ' ')"
+    mods_list | while IFS= read -r f; do
+        mkdir -p "$c/Resources/mods/$(dirname "$f")"
+        cp "$mods/$f" "$c/Resources/mods/$f"
+    done
+fi
+
 say "signing ..."
 codesign --force --sign - "$c/Frameworks/"*.dylib 2>/dev/null || die "signing the libraries failed"
 codesign --force --sign - "$stage" 2>/dev/null || die "signing the app failed"
@@ -124,7 +147,9 @@ if otool -L "$c/MacOS/opensmac" "$c/Frameworks/"*.dylib | grep -E "^[[:space:]]"
     die "the app still refers to libraries outside itself; $app is unchanged"
 fi
 
-# Five hidden turns played by the bundle's own binary, libraries and game files.
+# Five hidden turns played by the bundle's own binary, libraries, game files and mods.
+smoke_mods=""
+if [ "$mod_files" -gt 0 ]; then smoke_mods="$c/Resources/mods"; fi
 say "playing five hidden turns from the bundle ..."
 smoke="$out/.smoke"
 rm -rf "$smoke"
@@ -132,9 +157,13 @@ mkdir -p "$smoke"
 python3 "$root/src/tools/gen_data_image.py" "$c/Resources/game/terranx.exe" "$smoke/data_image.bin" >/dev/null
 (cd "$smoke" && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$c/MacOS/opensmac" --new size=0 --human 0 --seed 1,2 \
     --hidden --turns 5 --shot "$smoke/shot.bmp" --outdir "$smoke/out" --gamedir "$c/Resources/game" \
-    --image "$smoke/data_image.bin" --ini "$c/Resources/Alpha Centauri.Ini") > "$smoke/log.txt" 2>&1 ||
+    --image "$smoke/data_image.bin" --ini "$c/Resources/Alpha Centauri.Ini" \
+    ${smoke_mods:+--mods} ${smoke_mods:+"$smoke_mods"}) > "$smoke/log.txt" 2>&1 ||
     die "the bundled game did not run: see $smoke/log.txt; $app is unchanged"
 [ -s "$smoke/shot.bmp" ] || die "the bundled game drew nothing: see $smoke/log.txt; $app is unchanged"
+if [ -n "$smoke_mods" ] && ! grep -q "mods folder .*: $mod_files file" "$smoke/log.txt"; then
+    die "the bundled game did not find its $mod_files mod file(s): see $smoke/log.txt; $app is unchanged"
+fi
 rm -rf "$smoke"
 # The run above saved into the bundle's saves folder: empty it and sign once more.
 rm -rf "$c/Resources/game/saves"
@@ -144,5 +173,5 @@ codesign --verify --deep --strict "$stage" || die "the signature does not verify
 
 rm -rf "$app"   # checked above: absent, or an app this script made
 mv "$stage" "$app"
-echo "package_app: done: $app ($(du -sh "$app" | cut -f1 | tr -d ' '), opensmac $version $commit)"
+echo "package_app: done: $app ($(du -sh "$app" | cut -f1 | tr -d ' '), opensmac $version $commit, $mod_files mod file(s))"
 echo "  Open it from Finder, or: open \"$app\""
