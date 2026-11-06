@@ -42,6 +42,10 @@ nocrash() {
 #    hold (h), then the foil: explore (/) ...
 run keys $NEW --keys "ENTER,h,UNITS,/,UNITS,SHOT:keys.bmp"
 check keys "hold: order 2" "unit 4 f1 Scout Patrol \(35,7\) order 2 "
+# The same through the platform's input path (SDLKEY: as from the keyboard; the plain tokens skip
+# it): a punctuation key without a virtual-key code never reached the game.
+run keys_sdl $NEW --keys "ENTER,SDLKEY:/,WAIT:300,UNITS"
+check keys_sdl "explore by the / key" "unit 4 f1 Scout Patrol \([0-9]+,[0-9]+\) order [0-9]+ moves [0-9]+ state 0400?4"
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys
 

@@ -77,7 +77,8 @@
 // scripted input until the online game noted a line containing TEXT ("net: ..." on stderr, after
 // the last line a WAITFOR matched; 300 s at most), WAIT:MS (no
 // scripted input for MS ms: the waiting loop runs its timers and animations as for a player who
-// waits), QUIT. --exit-after-keys (default with --hidden) quits when they run out.
+// waits), SDLKEY:C or SDLKEY:CODE (a key press through the platform's input path, as from the
+// keyboard: the other tokens skip that path; follow it with a WAIT so that it is read), QUIT. --exit-after-keys (default with --hidden) quits when they run out.
 // Such unattended runs skip the animations (window slides, unit moves, booms, battle reports,
 // movies); --animate (or OPENSMAC_ANIMATE=1) plays them all with their waits as an interactive game
 // does and still quits at the end of the keys (the test suites' default; TEST_FAST=1: unattended).
@@ -663,6 +664,10 @@ bool parse_key(std::string tok, ScriptedKey* out) {
     }
     if (tok.rfind("WAITFOR:", 0) == 0) {  // WAITFOR:TEXT, until a network note contains TEXT (test aid)
         out->command = "waitfor " + tok.substr(8);
+        return true;
+    }
+    if (tok.rfind("SDLKEY:", 0) == 0) {  // SDLKEY:C or SDLKEY:CODE, a key through the platform (test aid)
+        out->command = "sdlkey " + tok.substr(7);
         return true;
     }
     if (tok.rfind("WAIT:", 0) == 0) {  // WAIT:MS, real time passing, then a present (test aid)

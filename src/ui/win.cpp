@@ -211,6 +211,10 @@ namespace {
 // Runs a scripted command; returns false when it is unknown.
 bool run_command(const std::string& cmd) {
     std::string arg = cmd.find(' ') == std::string::npos ? "" : cmd.substr(cmd.find(' ') + 1);
+    if (cmd.rfind("sdlkey", 0) == 0) {  // SDLKEY:C or SDLKEY:CODE, through the platform's input path
+        platform::key_inject(arg.size() == 1 ? (uint8_t)arg[0] : std::atoi(arg.c_str()));
+        return true;
+    }
     if (cmd.rfind("shot", 0) == 0) {
         std::string path = arg;
         if (path.empty()) {

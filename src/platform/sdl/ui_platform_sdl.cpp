@@ -5,6 +5,7 @@
 // the window procedure's input messages (SDL events translated to Windows virtual-key codes),
 // timeGetTime (SDL_GetTicks) and GDI text output (SDL_ttf, rendered without antialiasing as GDI
 // does on an 8-bit DIB). Portable to Linux, macOS and Windows; nothing X11-specific.
+#include "platform/keymap.h"
 #include "platform/ui_platform.h"
 #include "platform/win32.h"
 
@@ -123,7 +124,7 @@ int32_t to_vk(SDL_Keycode k) {
     case SDLK_RCTRL: return VKEY_CONTROL;
     case SDLK_LALT:
     case SDLK_RALT: return VKEY_MENU;
-    default: return 0;
+    default: return oem_vk((int32_t)k);
     }
 }
 
@@ -421,6 +422,17 @@ std::string find_font_file(const char* face, bool bold, bool italic) {
 }  // namespace
 
 void set_game_dir(const std::string& dir) { g_game_dir = dir; }
+
+void key_inject(int32_t keycode) {
+    SDL_Event e{};
+    e.type = SDL_KEYDOWN;
+    e.key.state = SDL_PRESSED;
+    e.key.keysym.sym = keycode;
+    SDL_PushEvent(&e);
+    e.type = SDL_KEYUP;
+    e.key.state = SDL_RELEASED;
+    SDL_PushEvent(&e);
+}
 
 namespace {
 bool sdl_init() {

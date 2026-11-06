@@ -72,6 +72,9 @@ bool poll_event(Event* ev);
 bool wait_event(Event* ev, int32_t timeout_ms);
 // GetAsyncKeyState for a virtual-key code: true while held.
 bool key_down(int32_t vk);
+// Test aid: a key press and release as the keyboard delivers them (keycode: the backend's, for
+// the SDL backend an unshifted character is its own code), through the whole input path.
+void key_inject(int32_t keycode);
 
 // ---- clock (timeGetTime) ----
 uint32_t ticks_ms();
