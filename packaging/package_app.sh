@@ -77,6 +77,7 @@ if [ "$apply" = 0 ]; then
     say "would: put in it opensmac $version ($commit), SDL2 and SDL2_ttf, $game_files game files ($(du -sh "$game" | cut -f1 | tr -d ' '))"
     if [ "$mod_files" -gt 0 ]; then say "would: put in $mod_files mod file(s) from $mods: $(mods_list | tr '\n' ' ')"
     else say "would: put in no mods (none in ${mods})"; fi
+    say "would: make its icon from the game's title screen (packaging/make_icon.py)"
     say "would: sign it ad hoc, verify the signature and play five hidden turns from the bundle"
     exit 0
 fi
@@ -105,6 +106,27 @@ plist="$c/Info.plist"
 sed "s/@VERSION@/$version/" "$root/packaging/Info.plist" > "$plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" -c "Set :CFBundleName $name" \
     -c "Set :CFBundleDisplayName $name" -c "Add :OpenSMACCommit string $commit" "$plist"
+
+# The icon, made from the game's title screen. Without it the app still works (the system's
+# plain icon), so a failure here is a warning.
+say "making the icon ..."
+icon="$out/.icon"
+rm -rf "$icon"
+mkdir -p "$icon/AppIcon.iconset"
+if python3 "$root/packaging/make_icon.py" "$game" "$icon/icon.png" 2> "$icon/error.txt"; then
+    for size in 16 32 128 256 512; do
+        sips -z "$size" "$size" "$icon/icon.png" --out "$icon/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
+        sips -z "$((size * 2))" "$((size * 2))" "$icon/icon.png" --out "$icon/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+    done
+    if iconutil -c icns "$icon/AppIcon.iconset" -o "$c/Resources/AppIcon.icns" 2> "$icon/error.txt"; then
+        /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$plist"
+    else
+        say "warning: no icon (iconutil: $(tr '\n' ' ' < "$icon/error.txt"))"
+    fi
+else
+    say "warning: no icon ($(tr '\n' ' ' < "$icon/error.txt"))"
+fi
+rm -rf "$icon"
 
 # The SDL libraries, found through @rpath = Contents/Frameworks only (as packaging/package.sh).
 for lib in $libs; do
