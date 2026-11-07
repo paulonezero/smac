@@ -10,7 +10,6 @@ namespace thinker {
 
 PMTable mapdata;
 NodeSet mapnodes;
-AIPlans plans[MaxPlayerNum];
 int move_upkeep_faction = -1;
 
 namespace {
@@ -20,14 +19,6 @@ std::set<int> region_probe;
 Points nonally;
 int nonally_veh_count = -1;
 int nonally_faction_id = -1;
-
-const int ManifoldHarmonicsBonus[][3] = {
-    {0, 0, 0},  // Planet < 0
-    {0, 0, 1},  // Planet = 0
-    {1, 0, 1},  // Planet = 1
-    {1, 1, 1},  // Planet = 2
-    {1, 1, 2},  // Planet > 2
-};
 
 void adjust_former(int x, int y, int range, int value) {
     for (auto& m : iterate_tiles(x, y, 0, TableRange[range])) mapdata[{m.x, m.y}].former += value;
@@ -47,12 +38,6 @@ void adjust_unit_near(int x, int y, int range, int value) {
 
 void adjust_enemy_near(int x, int y, int range, int value) {
     for (auto& m : iterate_tiles(x, y, 0, TableRange[range])) mapdata[{m.x, m.y}].enemy_near += value;
-}
-
-int faction_might(int faction_id) { return plans[faction_id].mil_strength + 8 * Factions[faction_id].pop_total; }
-
-int compare_might(int faction_id, int faction_id_tgt) {
-    return 4 * faction_might(faction_id) >= 3 * faction_might(faction_id_tgt);
 }
 
 bool stack_search(int x, int y, int faction_id, StackType type, int mode) {
@@ -96,158 +81,6 @@ bool can_alter_level(int x, int y, int faction_id, bool raise) {
 
 // Ocean refers only to main_sea_region
 int ocean_coast_tiles(int x, int y) { return (mapdata[{x, y}].flags / PM_ShoreLine) & PM_ShoreMask; }
-
-// ---- yields (Thinker's map.cpp) ------------------------------------------------------------------
-
-int bonus_yield(int res_type) {
-    switch (res_type) {
-    case RES_NUTRIENT: return ResInfo.bonus_sq.nutrient;
-    case RES_MINERAL: return ResInfo.bonus_sq.mineral;
-    case RES_ENERGY: return ResInfo.bonus_sq.energy;
-    default: return 0;
-    }
-}
-
-int total_yield(int x, int y, int faction_id) {
-    return crop_yield(faction_id, -1, x, y, 0) + mine_yield(faction_id, -1, x, y, 0) +
-           energy_yield(faction_id, -1, x, y, 0);
-}
-
-int fungus_yield(int faction_id, int res_type) {
-    Faction* f = &Factions[faction_id];
-    int p = clamp(f->SE_planet_pending, -3, 0);
-    int N = clamp(f->tech_fungus_nutrient + p, 0, 99);
-    int M = clamp(f->tech_fungus_mineral + p, 0, 99);
-    int E = clamp(f->tech_fungus_energy + p + (f->SE_economy_pending >= 2), 0, 99);
-    if (thinker::has_project(FAC_MANIFOLD_HARMONICS, faction_id)) {
-        int m = clamp(f->SE_planet_pending + 1, 0, 4);
-        N += ManifoldHarmonicsBonus[m][0];
-        M += ManifoldHarmonicsBonus[m][1];
-        E += ManifoldHarmonicsBonus[m][2];
-    }
-    if (res_type == RES_NUTRIENT) return N;
-    if (res_type == RES_MINERAL) return M;
-    if (res_type == RES_ENERGY) return E;
-    return N + M + E;
-}
-
-int item_yield(int x, int y, int faction_id, int bonus, uint32_t item) {
-    MAP* sq = mapsq(x, y);
-    if (!sq) return 0;
-    int N = 0, M = 0, E = 0;
-    if (item != BIT_FUNGUS) {
-        if (bonus == RES_NUTRIENT) N += ResInfo.bonus_sq.nutrient;
-        if (bonus == RES_MINERAL) M += ResInfo.bonus_sq.mineral;
-        if (bonus == RES_ENERGY) E += ResInfo.bonus_sq.energy;
-        if ((sq->items & BIT_RIVER) && !is_ocean(sq)) E++;
-        if ((sq->landmarks & LM_CRATER) && code_at(sq) < 9) M++;
-        if ((sq->landmarks & LM_VOLCANO) && code_at(sq) < 9) M++, E++;
-        if (sq->landmarks & LM_JUNGLE) N++;
-        if (sq->landmarks & LM_URANIUM) E++;
-        if ((sq->landmarks & LM_FRESH) && is_ocean(sq)) N++;
-        if (sq->landmarks & LM_GEOTHERMAL) E++;
-        if (sq->landmarks & LM_RIDGE) E++;
-        if (sq->landmarks & LM_CANYON) M++;
-        if ((sq->landmarks & LM_FOSSIL) && code_at(sq) < 6) M++;
-        if (Factions[faction_id].SE_economy_pending >= 2) E++;
-    }
-    if (item == BIT_FOREST) {
-        N += ResInfo.forest_sq.nutrient;
-        M += ResInfo.forest_sq.mineral;
-        E += ResInfo.forest_sq.energy;
-    } else if (item == BIT_THERMAL_BORE) {
-        N += ResInfo.borehole_sq.nutrient;
-        M += ResInfo.borehole_sq.mineral;
-        E += ResInfo.borehole_sq.energy;
-        N -= (N > 0);
-    } else if (item == BIT_FUNGUS) {
-        N = fungus_yield(faction_id, RES_NUTRIENT);
-        M = fungus_yield(faction_id, RES_MINERAL);
-        E = fungus_yield(faction_id, RES_ENERGY);
-    } else if (item == BIT_FARM && is_ocean(sq)) {
-        N += ResInfo.ocean_sq.nutrient + ResInfo.improved_sea.nutrient;
-        M += ResInfo.ocean_sq.mineral;
-        E += ResInfo.ocean_sq.energy;
-        if (sq->items & BIT_MINE) {
-            M += ResInfo.improved_sea.mineral + has_tech(Rules.tech_preq_mining_platform_bonus, faction_id);
-            N -= (N > 0);
-        }
-        if (sq->items & BIT_SOLAR) E += ResInfo.improved_sea.energy;
-    }
-    if (N > conf.tile_output_limit[0] && bonus != RES_NUTRIENT && !has_tech(Rules.tech_preq_allow_3_nutrients_sq, faction_id))
-        N = conf.tile_output_limit[0];
-    if (M > conf.tile_output_limit[1] && bonus != RES_MINERAL && !has_tech(Rules.tech_preq_allow_3_minerals_sq, faction_id))
-        M = conf.tile_output_limit[1];
-    if (E > conf.tile_output_limit[2] && bonus != RES_ENERGY && !has_tech(Rules.tech_preq_allow_3_energy_sq, faction_id))
-        E = conf.tile_output_limit[2];
-    return N + M + E;
-}
-
-// Thinker's plan.cpp: what the faction wants of fungus and tubes this turn.
-void former_plans(int faction_id) {
-    CFacility& facility = Facility[FAC_TREE_FARM];
-    bool tree_farm = has_tech(facility.preq_tech, faction_id) && facility.cost + facility.maint < 20;
-    bool former_fungus = (has_terra(FORMER_PLANT_FUNGUS, TRIAD_LAND, faction_id) ||
-                          has_terra(FORMER_PLANT_FUNGUS, TRIAD_SEA, faction_id));
-    bool improv_fungus = has_tech(Rules.tech_preq_improv_fungus, faction_id) ||
-                         has_tech(Rules.tech_preq_build_road_fungus, faction_id) ||
-                         thinker::has_project(FAC_XENOEMPATHY_DOME, faction_id);
-    int value = fungus_yield(faction_id, RES_NONE) -
-                (has_terra(FORMER_FOREST, TRIAD_LAND, faction_id)
-                     ? tree_farm + ResInfo.forest_sq.nutrient + ResInfo.forest_sq.mineral + ResInfo.forest_sq.energy
-                     : 2);
-    plans[faction_id].keep_fungus = clamp(2 * value, 0, (improv_fungus ? 8 : 4));
-    plans[faction_id].plant_fungus =
-        former_fungus && value >= 0 && value + improv_fungus + thinker::has_project(FAC_MANIFOLD_HARMONICS, faction_id) > 1;
-    plans[faction_id].build_tubes = has_terra(FORMER_MAGTUBE, TRIAD_LAND, faction_id);
-}
-
-void update_main_region(int faction_id) {
-    for (int i = 0; i < MaxPlayerNum; i++) {
-        AIPlans& p = plans[i];
-        p.main_region = -1;
-        p.main_region_x = -1;
-        p.main_region_y = -1;
-        if (i == faction_id) {
-            p.prioritize_naval = 0;
-            p.main_sea_region = -1;
-        }
-    }
-    for (int i = 0, cnt = BaseCount; i < cnt; ++i) {
-        BASE* base = &Bases[i];
-        MAP* sq = mapsq(base->x, base->y);
-        AIPlans& p = plans[base->faction_id];
-        if (p.main_region < 0 && sq && !is_ocean(sq)) {
-            p.main_region = sq->region;
-            p.main_region_x = base->x;
-            p.main_region_y = base->y;
-        }
-    }
-    AIPlans& p = plans[faction_id];
-    if (p.main_region < 0) return;
-    // Prioritize naval invasions if the closest enemy is on another region
-    MAP* sq;
-    TileSearch ts;
-    ts.init(p.main_region_x, p.main_region_y, TS_TERRITORY_SHORE, 2);
-    int i = 0;
-    int k = 0;
-    while (++i <= 800 && (sq = ts.get_next()) != nullptr) {
-        if (at_war(faction_id, sq->owner) && !is_ocean(sq) && ++k >= 10) {
-            p.prioritize_naval = 0;
-            return;
-        }
-    }
-    int min_dist = INT_MAX;
-    for (i = 1; i < MaxPlayerNum; i++) {
-        int dist = (plans[i].main_region_x < 0
-                        ? MaxEnemyRange
-                        : map_range(p.main_region_x, p.main_region_y, plans[i].main_region_x, plans[i].main_region_y));
-        if (at_war(faction_id, i) && dist < min_dist) {
-            min_dist = dist;
-            p.prioritize_naval = p.main_region != plans[i].main_region;
-        }
-    }
-}
 
 // ---- terraforming choices ------------------------------------------------------------------------
 

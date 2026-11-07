@@ -547,6 +547,14 @@ bool parse_key(std::string tok, ScriptedKey* out) {
         out->command = "auto " + tok.substr(5);
         return true;
     }
+    if (tok.rfind("GOV:", 0) == 0) {  // GOV:ID: the base's governor on
+        out->command = "gov " + tok.substr(4);
+        return true;
+    }
+    if (tok == "BASES") {  // the viewer's bases and their production
+        out->command = "bases";
+        return true;
+    }
     if (tok.rfind("SAVE:", 0) == 0) {
         out->command = "save " + tok.substr(5);
         return true;

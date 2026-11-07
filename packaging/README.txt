@@ -97,6 +97,10 @@ is off unless set, and the game then plays as the original):
 
   manage_player_units=1   your automated formers (shift+A and the other automation orders)
                           use Thinker's former logic instead of the original's
+  manage_player_bases=1   a base's governor, when you switch it on, chooses production by
+                          Thinker's logic, within the governor's own settings
+  base_hurry=1            with it, the governor hurries facilities out of your credits by
+                          Thinker's rules; 2: secret projects too
 
 
 5. Notes

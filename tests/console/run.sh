@@ -106,6 +106,17 @@ if [ -f "$ROOT/work/thinker_test/t40.sav" ]; then
         echo "PASS thinker_formers: off, the original's logic terraforms without Thinker"
     else echo "FAIL thinker_formers: off, the original's logic terraforms without Thinker"; FAIL=1; fi
     nocrash thinker_formers_on
+    # Thinker's governor (--thinker manage_player_bases=1): the governor switched on at base 0
+    # (GOV:ID) takes Thinker's choice of production (select_build) instead of the original's; off,
+    # the original's base_reset runs and the base keeps building its Recreation Commons.
+    run thinker_governor_off --save work/thinker_test/t40.sav --human 1 --keys "WAIT:50,$AUTOS,GOV:0,BASES,$ETURN,$ETURN,BASES"
+    run thinker_governor_on --save work/thinker_test/t40.sav --human 1 --thinker manage_player_bases=1 --thinker base_hurry=2 --thinker debug=1 --keys "WAIT:50,$AUTOS,GOV:0,BASES,$ETURN,$ETURN,BASES"
+    check thinker_governor_on "Thinker's governor chose the base's production" "^thinker: choice: -?[0-9]+ "
+    check thinker_governor_on "the governor is on and the choice applied" "^base 0 f1 .* gov 80DFBE41 production -?[0-9]+ "
+    if ! grep -q '^thinker:' "$OUT/thinker_governor_off.log" && grep -qE '^base 0 f1 .* gov 80DFBE41 production -6 Recreation Commons' "$OUT/thinker_governor_off.log"; then
+        echo "PASS thinker_governor: off, the original's governor keeps the base's production"
+    else echo "FAIL thinker_governor: off, the original's governor keeps the base's production"; FAIL=1; fi
+    nocrash thinker_governor_on
 fi
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys

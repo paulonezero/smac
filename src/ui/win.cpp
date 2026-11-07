@@ -267,6 +267,28 @@ bool run_command(const std::string& cmd) {
         }
         return true;
     }
+    if (cmd == "bases") {  // test aid: the viewer's bases and their production
+        for (int32_t i = 0; i < BaseCount; i++) {
+            const BASE& b = Bases[i];
+            if (b.faction_id != CurrentPlayerFaction) continue;
+            const int32_t item = b.queue_items[0];
+            std::fprintf(stderr, "base %d f%d %s (%d,%d) pop %d gov %08X production %d %s minerals %d\n", i, b.faction_id,
+                         b.name, b.x, b.y, b.pop_size, (uint32_t)b.governor_flags, item,
+                         item >= 0 ? Units[item].name : Facility[-item].name, b.minerals_accumulated);
+        }
+        return true;
+    }
+    if (cmd.rfind("gov ", 0) == 0) {  // test aid (GOV:ID): the base's governor on, as the base window turns it on
+        const int32_t id = std::atoi(arg.c_str());
+        if (id >= 0 && id < BaseCount) {
+            BASE& b = Bases[id];
+            b.governor_flags = (int32_t)(((uint32_t)Factions[b.faction_id].base_governor_adv | 0x80000041u) & 0xBFFFFFFFu);
+            b.state_flags &= 0x7FFFFFFF;
+            b.queue_size = 0;
+            base_reset(id, 1);
+        }
+        return true;
+    }
     if (cmd.rfind("auto ", 0) == 0) {  // test aid (AUTO:ID): the unit fully automated, as shift+A on it
         const int32_t id = std::atoi(arg.c_str());
         if (id >= 0 && id < VehCount) Console_automate(&MainConsole, id, 0);

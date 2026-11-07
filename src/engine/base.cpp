@@ -33,6 +33,7 @@
 #include "engine/world.h"
 #include "engine/zoc.h"
 #include "engine/table_at.h"
+#include "thinker/thinker.h"
 #include "platform/win32.h"
 
 #ifdef FC_ORIG_BASE_BUILD  // Test builds only (-DFC_ORIG_BASE_BUILD): route base_build to the original, to verify this module apart from base_misc
@@ -730,6 +731,7 @@ void Base::change(int32_t item_id) {
 }
 
 void GAMEAPI base_reset(int32_t base_id, int32_t has_gov) {
+    if (thinker::base_reset(base_id, has_gov)) return;  // Thinker's governor, when on
     BASE& base = game().bases[base_id];
     int32_t faction_id = (uint8_t)base.faction_id;
     uint8_t bit = (uint8_t)(1 << faction_id);
@@ -3824,6 +3826,7 @@ void GAMEAPI base_production() {
 // ---- hurry ----------------------------------------------------------------------------------------------------
 
 void GAMEAPI base_hurry() {
+    if (thinker::base_hurry()) return;  // Thinker's governor hurrying, when on
     int32_t faction_id = (uint8_t)cur_base().faction_id;
     Faction& f = game().factions[faction_id];
     uint8_t bit = (uint8_t)(1 << faction_id);

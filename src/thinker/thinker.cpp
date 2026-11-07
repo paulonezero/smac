@@ -5,6 +5,8 @@
 #include <cstring>
 
 #include "engine/ai.h"
+#include "engine/base.h"
+#include "thinker/build.h"
 #include "thinker/compat.h"
 #include "thinker/move.h"
 
@@ -24,7 +26,12 @@ Option g_options[] = {
     {"manage_player_units", &conf.manage_player_units},
     {"manage_player_bases", &conf.manage_player_bases},
     {"base_hurry", &conf.base_hurry},
+    {"skip_gov_facility", &conf.skip_gov_facility},
     {"repair_battle_ogre", &conf.repair_battle_ogre},
+    {"simple_hurry_cost", &conf.simple_hurry_cost},
+    {"base_spacing", &conf.base_spacing},
+    {"base_nearby_limit", &conf.base_nearby_limit},
+    {"max_satellites", &conf.max_satellites},
     {"debug", &conf.debug},
 };
 const char* g_option_names[sizeof(g_options) / sizeof(g_options[0])];
@@ -58,6 +65,24 @@ void random_reseed(uint32_t value) { g_random_seed = value; }
 int32_t random(int32_t limit) {
     g_random_seed = 1664525u * g_random_seed + 1013904223u;
     return (int32_t)(((g_random_seed & 0xffff) * (uint32_t)limit) >> 16);
+}
+
+bool base_reset(int32_t base_id, int32_t has_gov) {
+    if (!conf.manage_player_bases || base_id < 0 || base_id >= BaseCount) return false;
+    BASE& base = Bases[base_id];
+    if (base.faction_id <= 0 || !is_human(base.faction_id)) return false;
+    debug("base_reset %d %d %s has_gov %d\n", CurrentTurn, base_id, base.name, has_gov);
+    const int32_t choice = base_build_choice(base_id, has_gov);
+    ::base_change(base_id, choice);
+    return true;
+}
+
+bool base_hurry() {
+    if (!conf.manage_player_bases || conf.base_hurry < 1 || CurrentBaseID < 0 || CurrentBaseID >= BaseCount) return false;
+    BASE& base = Bases[CurrentBaseID];
+    if (base.faction_id <= 0 || !is_human(base.faction_id)) return false;
+    governor_hurry();
+    return true;
 }
 
 // Thinker's mod_enemy_move, for the part of it this layer has: a player's automated former takes

@@ -244,6 +244,74 @@ inline bool is_patrol_order(const VEH* v) {
            (v->state & (VSTATE_UNK_1000000 | VSTATE_ON_ALERT)) == (VSTATE_UNK_1000000 | VSTATE_ON_ALERT);
 }
 inline int veh_speed(int veh_id, int skip_morale) { return speed(veh_id, skip_morale); }
+inline bool unit_is_planet_buster(const UNIT* u) { return u->plan == PLAN_PLANET_BUSTER; }
+inline int is_planet_buster(const VEH* v) {  // the reactor when one, else 0 (Thinker's)
+    const UNIT* u = &Units[v->unit_id];
+    return u->plan == PLAN_PLANET_BUSTER ? u->reactor_id : 0;
+}
+inline bool is_psi_unit(const VEH* v) { return offense_value(v) < 0; }
+inline bool is_armored(const VEH* v) { return Armor[Units[v->unit_id].armor_id].defense_value != 1; }
+inline int defense_value(const VEH* v) { return Armor[Units[v->unit_id].armor_id].defense_value; }
+inline bool is_garrison_unit(const VEH* v) {
+    const int plan = veh_plan(v);
+    return (plan <= PLAN_RECON || (plan == PLAN_PROBE && is_armored(v))) && triad(v) == TRIAD_LAND;
+}
+inline int eval_offense(const VEH* v) {
+    int value = offense_value(v);
+    return value >= 0 ? value : min(7, max(1, (int)v->morale + 1));
+}
+inline int eval_defense(const VEH* v) {
+    int value = defense_value(v);
+    return value >= 0 ? value : min(7, max(1, (int)v->morale + 1));
+}
+inline int eval_garrison(const VEH* v) { return (triad(v) == TRIAD_LAND ? 2 : 1) + is_combat_unit(v) + is_armored(v); }
+// Prototypes (UNIT) by id.
+inline int unit_triad(int unit_id) { return Chassis[Units[unit_id].chassis_id].triad; }
+inline int unit_speed(int unit_id) { return Chassis[Units[unit_id].chassis_id].speed; }
+inline int unit_range(int unit_id) { return Chassis[Units[unit_id].chassis_id].range; }
+inline bool unit_is_missile(int unit_id) { return Chassis[Units[unit_id].chassis_id].missile != 0; }
+inline int unit_offense_value(int unit_id) { return Weapon[Units[unit_id].weapon_id].offense_value; }
+inline int unit_defense_value(int unit_id) { return Armor[Units[unit_id].armor_id].defense_value; }
+inline int unit_weapon_mode(int unit_id) { return Weapon[Units[unit_id].weapon_id].mode; }
+inline bool unit_is_prototyped(int unit_id) { return (Units[unit_id].unit_flags & UNIT_PROTOTYPED) != 0; }
+inline bool unit_is_psi(int unit_id) { return unit_offense_value(unit_id) < 0; }
+inline bool unit_is_armored(int unit_id) { return unit_defense_value(unit_id) != 1; }
+inline bool unit_is_combat(int unit_id) { return unit_offense_value(unit_id) != 0; }
+inline bool unit_is_garrison(int unit_id) {
+    const int plan = Units[unit_id].plan;
+    return (plan <= PLAN_RECON || (plan == PLAN_PROBE && unit_is_armored(unit_id))) && unit_triad(unit_id) == TRIAD_LAND;
+}
+
+// ---- bases ---------------------------------------------------------------------------------------
+
+inline int base_item(const BASE* b) { return b->queue_items[0]; }
+inline bool item_is_project(const BASE* b) { return b->queue_items[0] <= -SP_ID_First; }
+inline bool drone_riots_active(const BASE* b) { return (b->state_flags & BSTATE_DRONE_RIOTS_ACTIVE) != 0; }
+inline bool drone_riots(const BASE* b) { return b->drone_total > b->talent_total; }
+inline bool golden_age(const BASE* b) {
+    return !b->drone_total && b->pop_size > 2 && b->talent_total >= (b->pop_size + 1) / 2;
+}
+inline bool base_plr_owner(const BASE* b) { return is_human(b->faction_id); }
+// AI bases are not limited by any governor settings.
+inline uint32_t gov_config(const BASE* b) { return is_human(b->faction_id) ? (uint32_t)b->governor_flags : ~0u; }
+// When drone riots are active game only allows hurrying facilities (excluding projects/satellites).
+inline bool can_hurry_item(const BASE* b) {
+    return b->queue_items[0] != -FAC_STOCKPILE_ENERGY && !(b->state_flags & BSTATE_HURRY_PRODUCTION) &&
+           (!(b->state_flags & BSTATE_DRONE_RIOTS_ACTIVE) || (b->queue_items[0] < 0 && b->queue_items[0] > -FAC_SKY_HYDRO_LAB));
+}
+inline int base_SE_police(const BASE* b, bool pending) {
+    return (pending ? Factions[b->faction_id].SE_police_pending : Factions[b->faction_id].SE_police) +
+           2 * has_fac_built(FAC_BROOD_PIT, (int)(b - &Bases[0]));
+}
+inline int project_base(int facility_id) {
+    return facility_id >= SP_ID_First && facility_id <= SP_ID_Last ? SecretProjects[facility_id - SP_ID_First] : SP_Unbuilt;
+}
+inline bool is_alien(int faction_id) { return ExpansionEnabled && (MFactions[faction_id].rule_flags & RFLAG_ALIEN); }
+inline const char* prod_name(int item_id) {
+    if (item_id >= 0 && item_id < MaxProtoNum) return Units[item_id].name;
+    if (item_id < 0 && -item_id <= SP_ID_Last) return Facility[-item_id].name;
+    return "?";
+}
 
 // ---- random --------------------------------------------------------------------------------------
 

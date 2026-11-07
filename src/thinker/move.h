@@ -1,8 +1,10 @@
 // Thinker's unit movement: the turn's map data (move_upkeep) and the former logic (its move.h /
 // move.cpp, the part that formers use), on OpenSMAC (thinker.h).
 #pragma once
+#include "thinker/basex.h"
 #include "thinker/compat.h"
 #include "thinker/path.h"
+#include "thinker/plan.h"
 
 namespace thinker {
 
@@ -21,22 +23,8 @@ const int PM_NearOwnBase = 0x10000;
 const int PM_PsiGateBase = 0x20000;
 const int PM_LandBaseRds = 0x40000;
 
-// A faction's plans for the turn (Thinker's AIPlans: the part the formers read).
-struct AIPlans {
-    int main_region = -1;
-    int main_region_x = -1;
-    int main_region_y = -1;
-    int main_sea_region = -1;
-    int prioritize_naval = 0;
-    int build_tubes = 0;
-    int keep_fungus = 0;
-    int plant_fungus = 0;
-    int mil_strength = 0;
-};
-
 extern PMTable mapdata;
 extern NodeSet mapnodes;
-extern AIPlans plans[MaxPlayerNum];
 extern int move_upkeep_faction;
 
 // The turn's map data for the faction: tile values, roads wanted, safety, the former priorities.
