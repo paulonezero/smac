@@ -41,6 +41,13 @@ void set_zoom_levels(int32_t count);
 // pfncProcZoomKey: a zoom key for `win` with the levels: true with the window's zoom set (the
 // caller then redraws, smoothly or not); false for the original's steps.
 bool zoom_key(uint8_t* win, int32_t command);
+// Details when zoomed out, as PRACX: the original hides improvements, coasts and goodies from
+// zoom -8 out, fungus from -10, and draws units and bases as boxes; it also drops the fog's
+// dithering. On, they show down to -12 (PRACX sets those thresholds to -14).
+void set_zoom_details(bool on);
+// The zoom the map's drawing code tests its detail thresholds against: `zoom`, or with the
+// details on, no less than -7 for a zoom above -14 (detail_zoom in smoothview_math.h).
+int32_t detail_zoom(int32_t zoom);
 
 // pfncZoomProcessing's end: a view that is off the tile grid applies it here.
 void apply(uint8_t* win);

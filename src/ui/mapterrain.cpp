@@ -135,6 +135,9 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
     int32_t rocky = sq->val3 >> 6;  // local_38
     uint32_t items = (f < 0 || omniscient(f)) ? sq->items : known_items(sq, f);  // local_24
     int32_t small = (zoom < -6 || (opts & 0x80000000u)) ? 1 : 0;  // local_90
+    // The zoom the details (improvements, coasts, fungus, fog) are drawn for: with "Zoom Details"
+    // they show when zoomed out too, as PRACX draws them (smoothview::detail_zoom).
+    const int32_t dzoom = smoothview::detail_zoom(zoom);
     const uint32_t flat_look = opts & 0x1000000;  // local_11c
     bool unexplored = false;  // local_70
     bool seen = true;  // local_1c: currently in view (else dithered)
@@ -154,7 +157,7 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
         seen = false;
         landmarks |= 0x200000;
     } else if ((GameState & STATE_OMNISCIENT_VIEW) || f < 1 || !(GameMorePreferences & MPREF_MAP_SHOW_FOG_WAR) ||
-               zoom <= -8) {
+               dzoom <= -8) {
         seen = true;
         landmarks &= ~0x200000u;
     } else {
@@ -544,7 +547,7 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
                                  &quad_uv[0][0]);
         }
         // Xenofungus (sea fungus on water).
-        if ((items & 0x20) && alt > 1 && !unexplored && zoom > -10) {
+        if ((items & 0x20) && alt > 1 && !unexplored && dzoom > -10) {
             TextureKey = kArtKey;
             int32_t rot = RainTransition[fungus_mask][1];
             for (int32_t k = 0; k < 4; k++) {
@@ -595,7 +598,7 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
         }
     }
     // Coasts: the shallow water texture through the coast shape of each quadrant's coast bits.
-    if (zoom > -8 && !ocean) {
+    if (dzoom > -8 && !ocean) {
         for (int32_t p = 0; p < 4; p++) {
             uint32_t bits = coast[p];
             if (!bits) continue;
@@ -692,10 +695,10 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
             }
         }
     }
-    if ((improvements && (items & 0x8000) && zoom > -8) || (opts & 0x1000)) food = crop_yield(terr, -1, x, y, 0);
+    if ((improvements && (items & 0x8000) && dzoom > -8) || (opts & 0x1000)) food = crop_yield(terr, -1, x, y, 0);
     if ((opts & 0x200)) {
         int32_t bonus = bonus_at(x, y);
-        if (bonus && zoom > -8) {
+        if (bonus && dzoom > -8) {
             if (bonus == 4) {
                 sprite(dest, kSprSpecial + (ocean ? 0x2C : 0), px, py);
             } else {
@@ -705,29 +708,29 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
         }
     }
     if (improvements) {
-        if ((items & 0x800) && zoom > -8 && !ocean) sprite(dest, kSprBunker, px, py);
-        if ((items & 0x40000) && zoom > -8 && !ocean) sprite(dest, kSprAirbase, px, py);
-        if ((items & 0x80000000u) && zoom > -8) sprite_shadow(dest, kSprSensor, px, py);
+        if ((items & 0x800) && dzoom > -8 && !ocean) sprite(dest, kSprBunker, px, py);
+        if ((items & 0x40000) && dzoom > -8 && !ocean) sprite(dest, kSprAirbase, px, py);
+        if ((items & 0x80000000u) && dzoom > -8) sprite_shadow(dest, kSprSensor, px, py);
         bool farm = (items & 0x8000) != 0;
-        if (farm && zoom > -8 && !ocean) {
+        if (farm && dzoom > -8 && !ocean) {
             int32_t k = food - 1;
             if (k < 0) k = 0;
             else if (k > 3) k = 3;
             sprite(dest, ((items & 0x80000) ? kSprEnricher : kSprFarm) + k * 0x2C, px, py);
         }
-        if ((items & 0x10) && zoom > -8) {
+        if ((items & 0x10) && dzoom > -8) {
             if (!ocean) sprite(dest, kSprMine, px, py);
             else if (ExpansionEnabled || alt == 2) sprite(dest, kSprMineSea, px, py);
         }
-        if ((items & 0x40) && zoom > -8) {
+        if ((items & 0x40) && dzoom > -8) {
             if (!ocean) sprite(dest, kSprSolar, px, py);
             else if (ExpansionEnabled || alt == 2) sprite(dest, kSprSolarSea, px, py);
         }
-        if ((items & 0x400000) && zoom > -8) sprite(dest, kSprCondenser, px, py);
-        if ((items & 0x800000) && zoom > -8) sprite(dest, kSprMirror, px, py);
-        if ((items & 0x1000000) && zoom > -8)
+        if ((items & 0x400000) && dzoom > -8) sprite(dest, kSprCondenser, px, py);
+        if ((items & 0x800000) && dzoom > -8) sprite(dest, kSprMirror, px, py);
+        if ((items & 0x1000000) && dzoom > -8)
             sprite(dest, (sq->landmarks & 0x80001000) == 0x1000 ? kSprBoreholeGeo : kSprBorehole, px, py);
-        if (farm && zoom > -8 && !ocean && food > 4 && (items & 0x80000)) sprite(dest, kSprEnricher, px, py);
+        if (farm && dzoom > -8 && !ocean && food > 4 && (items & 0x80000)) sprite(dest, kSprEnricher, px, py);
         uint32_t l = sq->landmarks;
         if ((l & 0x80002000) == 0x2000) {
             int32_t code = (int32_t)l >> 24;
@@ -758,7 +761,7 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
         if ((l & 0x80008000) == 0x8000 && ExpansionEnabled && (int32_t)(l & 0xFF000000) < 0x6000000)
             sprite(dest, kSprLandmark8000 + ((int32_t)l >> 24) * 0x2C, px, py);
     }
-    if ((opts & 0x200) && zoom > -8) {
+    if ((opts & 0x200) && dzoom > -8) {
         if (goody_at(x, y)) {
             uint32_t l = sq->landmarks, hi = l & 0xFF000000;
             if ((l & 0x80004000) != 0x4000 || (hi != 0 && hi != 0x8000000 && hi != 0xA000000 && hi != 0x13000000))

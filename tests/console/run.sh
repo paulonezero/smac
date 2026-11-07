@@ -78,6 +78,15 @@ if awk '/^zoom levels:/ {n=NF-2; for (i=3; i<=NF; i++) {l[i-2]=$i; if ($i==0) z=
     echo "PASS zoom_levels: the zoom keys step through the levels"
 else echo "FAIL zoom_levels: the zoom keys step through the levels"; FAIL=1; fi
 nocrash zoom_levels
+# PRACX's details when zoomed out (--zoom-details): at zoom -12 the screen differs from the
+# original's (improvements, units and bases drawn), at -14 it is the same.
+ZD="--new size=2 --human 1 --seed 1,2 --keys ENTER,WAIT:50,x,x,x,x,x,x,WAIT:300,SHOT:z12.bmp,x,WAIT:300,SHOT:z14.bmp"
+run zoom_details_off $ZD
+run zoom_details_on $ZD --zoom-details
+if ! cmp -s "$OUT/zoom_details_off/z12.bmp" "$OUT/zoom_details_on/z12.bmp" && cmp -s "$OUT/zoom_details_off/z14.bmp" "$OUT/zoom_details_on/z14.bmp"; then
+    echo "PASS zoom_details: details drawn at -12, none at -14"
+else echo "FAIL zoom_details: details drawn at -12, none at -14"; FAIL=1; fi
+nocrash zoom_details_on
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys
 

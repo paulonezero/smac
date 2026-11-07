@@ -146,6 +146,14 @@ inline std::vector<int32_t> zoom_levels(int32_t count, int32_t width, int32_t he
     return levels;
 }
 
+// Details when zoomed out: the map's drawing code tests its detail thresholds (-8, -10) against
+// this instead of the zoom. PRACX writes -14 over those thresholds, so they pass at every zoom
+// but -14 itself; here a zoom above -14 counts as no less than -7 for them.
+inline int32_t detail_zoom(int32_t zoom, bool details) {
+    if (!details || zoom <= -14) return zoom;
+    return std::max(zoom, -7);
+}
+
 // A zoom key with the levels (not empty): the zoom it leads to from `zoom`, whose nearest level
 // is where the view is now. `command` as pfncProcZoomKey's: 0x203 in, 0x204 out, 0x205 the
 // original's zoom 0, 0x206 one level out from it (the original's -6), 0x207 the innermost

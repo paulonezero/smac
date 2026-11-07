@@ -120,7 +120,7 @@ Sprite* riot_icon(bool alien) {
 void GAMEAPI base_draw(Buffer* dest, int32_t base_id, int32_t px, int32_t py, int32_t zoom, int32_t flags) {
     BASE& base = Bases[base_id];
     int32_t f = (uint8_t)base.faction_id;
-    if ((zoom < -8 || (flags & 0x100)) && !(flags & 8) && !(flags & 0x800)) {
+    if ((smoothview::detail_zoom(zoom) < -8 || (flags & 0x100)) && !(flags & 8) && !(flags & 0x800)) {
         // Small zoom: a box in the faction colour.
         int32_t h = zoom_scale(zoom, 0x32), w = zoom_scale(zoom, 100);
         UiRect r;

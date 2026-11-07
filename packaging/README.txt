@@ -86,6 +86,9 @@ Settings in Alpha Centauri.Ini, section [Alpha Centauri] (read at start):
   Scroll Max=20        ...and at the screen's edge
   Zoom Levels=6        Z, X and the wheel step through this many zoom levels, spaced from
                        the whole map to a close view; 0: the original's sixteen steps
+  Zoom Details=1       improvements, units and bases drawn when zoomed out too (the
+                       original shows boxes and bare terrain from zoom -8 out); 0: as the
+                       original
 
 The start option --size WxH (e.g. --size 1280x1024) overrides them for one run, in a window.
 

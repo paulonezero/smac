@@ -29,6 +29,7 @@ constexpr int32_t kConsoleWidth = 1024;  // the console at the bottom of the scr
 bool g_enabled = false, g_unattended = false;
 int32_t g_edge_area = 40, g_edge_slow = 1, g_edge_fast = 20;  // set_edge_scroll
 int32_t g_zoom_levels = 0;  // set_zoom_levels
+bool g_zoom_details = false;  // set_zoom_details
 
 // The view off the grid. `pan`: it stays there between frames, and the view follows it (a glide's
 // picture is only drawn there, the view being at the target already).
@@ -113,6 +114,10 @@ void set_edge_scroll(int32_t area, int32_t slow, int32_t fast) {
 }
 
 void set_zoom_levels(int32_t count) { g_zoom_levels = count; }
+
+void set_zoom_details(bool on) { g_zoom_details = on; }
+
+int32_t detail_zoom(int32_t zoom) { return smoothview::detail_zoom(zoom, g_zoom_details); }
 
 bool zoom_key(uint8_t* win, int32_t command) {
     if (g_zoom_levels < 2 || !win || win != view()) return false;

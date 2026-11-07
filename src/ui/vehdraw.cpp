@@ -1271,7 +1271,7 @@ int32_t GAMEAPI veh_draw(Buffer* dest, int32_t veh_id, int32_t px, int32_t py, i
     VEH& veh = Vehs[veh_id];
     const int32_t f = veh.faction_id;
     const UNIT& unit = Units[veh.unit_id];
-    if ((zoom < -8 || (m & 0x100)) && !(m & 8) && !(m & 0x800)) {
+    if ((smoothview::detail_zoom(zoom) < -8 || (m & 0x100)) && !(m & 8) && !(m & 0x800)) {
         // Small zoom: a box in the faction colour.
         if (f != CurrentPlayerFaction && unit.plan == 0xB && !(GameState & STATE_OMNISCIENT_VIEW)) return 0;
         if (m & 0x400) return 0;

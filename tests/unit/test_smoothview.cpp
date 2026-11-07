@@ -121,6 +121,18 @@ TEST_CASE("smoothview: zoom levels from the whole map to a close view") {
     }
 }
 
+TEST_CASE("smoothview: the zoom the details are drawn for") {
+    for (int32_t z = -14; z <= 16; z += 2) CHECK(detail_zoom(z, false) == z);  // off: the zoom itself
+    // On: the thresholds at -8 and -10 pass from -12 in (-7 is above both), as PRACX's -14 do.
+    for (int32_t z = -12; z <= -8; z += 2) CHECK(detail_zoom(z, true) == -7);
+    CHECK(detail_zoom(-14, true) == -14);  // the outermost zoom stays bare
+    for (int32_t z = -6; z <= 16; z += 2) CHECK(detail_zoom(z, true) == z);  // in from -8: unchanged
+    CHECK(detail_zoom(-7, true) > -8);
+    CHECK(!(detail_zoom(-12, true) < -8));
+    CHECK(!(detail_zoom(-12, true) <= -8));
+    CHECK(detail_zoom(-12, true) > -10);
+}
+
 TEST_CASE("smoothview: the zoom keys step through the levels") {
     const std::vector<int32_t> levels{-10, -4, 0, 6, 10, 16};
     CHECK(zoom_to(levels, 0, 0x203) == 6);  // in

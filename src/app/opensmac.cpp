@@ -39,6 +39,8 @@
 // The mouse at a screen edge scrolls as in PRACX ("Scroll Area", "Scroll Min", "Scroll Max"), and
 // the zoom keys step through PRACX's zoom levels ("Zoom Levels", default 6; 0: the original's steps),
 // in a player's game; runs with --outdir use the original's steps unless --zoom-levels N is given.
+// "Zoom Details" (default 1; --zoom-details in a run with --outdir): the map's details drawn when
+// zoomed out too, as PRACX.
 //
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
@@ -169,6 +171,7 @@ struct Options {
     bool mods_given = false;
     bool smooth = false;  // --smooth: the smooth map view in a test run
     int zoom_levels = 0;  // --zoom-levels N: the zoom levels in a test run
+    bool zoom_details = false;  // --zoom-details: details when zoomed out in a test run
     std::string dump, like;  // --dump FILE [--like REF]: map canvas dump (ui_mapdump_like)
     std::string basedump;  // --basedump BASE:FILE: the base window's canvases (the oracle's basedump)
     int scroll_x = -1, scroll_y = -1;  // --scroll-from X,Y: the dump's redraw scrolls from there
@@ -768,6 +771,7 @@ int usage() {
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
         "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth] [--zoom-levels N]\n"
+        "                [--zoom-details]\n"
         "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
         "                [--nosound] [--original-bugs]\n");
@@ -801,6 +805,7 @@ int main(int argc, char** argv) {
         } else if (a == "--smooth") {
             g_opt.smooth = true;
         } else if (a == "--zoom-levels") g_opt.zoom_levels = std::atoi(next().c_str());
+        else if (a == "--zoom-details") g_opt.zoom_details = true;
         else if (a == "--image") g_opt.image = next();
         else if (a == "--ini") g_opt.ini = next();
         else if (a == "--outdir") g_opt.outdir = next();
@@ -962,6 +967,8 @@ int main(int argc, char** argv) {
         // map to a close view; 0: the original's steps. A player's game; tests only with --zoom-levels.
         const int levels = played ? ini_int("Zoom Levels", 6, 0, 16) : 0;
         smoothview::set_zoom_levels(g_opt.zoom_levels > 0 ? g_opt.zoom_levels : levels);
+        // "Zoom Details" (PRACX's): improvements, units and bases drawn when zoomed out too.
+        smoothview::set_zoom_details(g_opt.zoom_details || (played && ini_int("Zoom Details", 1, 0, 1) != 0));
     }
     // The harness's deterministic clock (engine/clock.h): the same keys give the same game.
     engine_set_deterministic(true);
