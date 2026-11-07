@@ -87,6 +87,26 @@ if ! cmp -s "$OUT/zoom_details_off/z12.bmp" "$OUT/zoom_details_on/z12.bmp" && cm
     echo "PASS zoom_details: details drawn at -12, none at -14"
 else echo "FAIL zoom_details: details drawn at -12, none at -14"; FAIL=1; fi
 nocrash zoom_details_on
+# Thinker's formers (src/thinker, --thinker manage_player_units=1): the player's automated former
+# runs Thinker's former_move and picks its own terraforming; off, the original's. Needs a save
+# with a player former, made once with (about four minutes):
+#   build/native/opensmac --original-bugs --hidden --outdir work/thinker_test/gen --new size=1 \
+#       --seed 1,2 --human 0 --turns 40 --snapshots work/thinker_test/snap
+#   cp work/thinker_test/snap/turn_040.sav work/thinker_test/t40.sav
+# Every unit of faction 1 is automated (AUTO:ID) so that ENTER ends the turn and the automated
+# units are moved: the former is unit 11 at 40,44.
+if [ -f "$ROOT/work/thinker_test/t40.sav" ]; then
+    AUTOS="AUTO:11,AUTO:12,AUTO:20,AUTO:23,AUTO:31,AUTO:32,AUTO:46,AUTO:54"
+    ETURN="ENTER,WAIT:400,ENTER,WAIT:200,ENTER,WAIT:200"
+    run thinker_formers_off --save work/thinker_test/t40.sav --human 1 --keys "WAIT:50,$AUTOS,$ETURN,$ETURN,$ETURN,UNITS"
+    run thinker_formers_on --save work/thinker_test/t40.sav --human 1 --thinker manage_player_units=1 --thinker debug=1 --keys "WAIT:50,$AUTOS,$ETURN,$ETURN,$ETURN,UNITS"
+    check thinker_formers_on "Thinker's former logic ran for the player's former" "^thinker: former_(action|move|skip) 40 44"
+    check thinker_formers_on "the former is terraforming" "^unit 11 f1 Formers \(40,44\) order [1-9]"
+    if ! grep -q '^thinker:' "$OUT/thinker_formers_off.log" && grep -qE '^unit 11 f1 Formers \(40,44\) order [1-9]' "$OUT/thinker_formers_off.log"; then
+        echo "PASS thinker_formers: off, the original's logic terraforms without Thinker"
+    else echo "FAIL thinker_formers: off, the original's logic terraforms without Thinker"; FAIL=1; fi
+    nocrash thinker_formers_on
+fi
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys
 

@@ -92,6 +92,12 @@ Settings in Alpha Centauri.Ini, section [Alpha Centauri] (read at start):
 
 The start option --size WxH (e.g. --size 1280x1024) overrides them for one run, in a window.
 
+Section [Thinker]: ports of the Thinker mod's improvements (Thinker's option names; every one
+is off unless set, and the game then plays as the original):
+
+  manage_player_units=1   your automated formers (shift+A and the other automation orders)
+                          use Thinker's former logic instead of the original's
+
 
 5. Notes
 --------

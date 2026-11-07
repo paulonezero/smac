@@ -267,6 +267,11 @@ bool run_command(const std::string& cmd) {
         }
         return true;
     }
+    if (cmd.rfind("auto ", 0) == 0) {  // test aid (AUTO:ID): the unit fully automated, as shift+A on it
+        const int32_t id = std::atoi(arg.c_str());
+        if (id >= 0 && id < VehCount) Console_automate(&MainConsole, id, 0);
+        return true;
+    }
     if (cmd == "units") {
         // The viewer's units (scripted tests).
         for (int32_t i = 0; i < VehCount; i++) {

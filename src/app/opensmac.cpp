@@ -148,6 +148,7 @@
 #include "platform/display.h"
 #include "platform/ui_platform.h"
 #include "platform/win32.h"
+#include "thinker/thinker.h"
 #include "ui/smoothview.h"
 #include "ui/console.h"
 #include "ui/diplowin.h"
@@ -172,6 +173,7 @@ struct Options {
     bool smooth = false;  // --smooth: the smooth map view in a test run
     int zoom_levels = 0;  // --zoom-levels N: the zoom levels in a test run
     bool zoom_details = false;  // --zoom-details: details when zoomed out in a test run
+    std::vector<std::string> thinker;  // --thinker KEY=VALUE: Thinker's options in a test run
     std::string dump, like;  // --dump FILE [--like REF]: map canvas dump (ui_mapdump_like)
     std::string basedump;  // --basedump BASE:FILE: the base window's canvases (the oracle's basedump)
     int scroll_x = -1, scroll_y = -1;  // --scroll-from X,Y: the dump's redraw scrolls from there
@@ -541,6 +543,10 @@ bool parse_key(std::string tok, ScriptedKey* out) {
         out->command = "shot" + (tok.size() > 5 ? " " + tok.substr(5) : std::string());
         return true;
     }
+    if (tok.rfind("AUTO:", 0) == 0) {  // AUTO:ID: automate the unit, as shift+A on it
+        out->command = "auto " + tok.substr(5);
+        return true;
+    }
     if (tok.rfind("SAVE:", 0) == 0) {
         out->command = "save " + tok.substr(5);
         return true;
@@ -771,7 +777,7 @@ int usage() {
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
         "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth] [--zoom-levels N]\n"
-        "                [--zoom-details]\n"
+        "                [--zoom-details] [--thinker KEY=VALUE ...]\n"
         "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
         "                [--nosound] [--original-bugs]\n");
@@ -806,6 +812,7 @@ int main(int argc, char** argv) {
             g_opt.smooth = true;
         } else if (a == "--zoom-levels") g_opt.zoom_levels = std::atoi(next().c_str());
         else if (a == "--zoom-details") g_opt.zoom_details = true;
+        else if (a == "--thinker") g_opt.thinker.push_back(next());
         else if (a == "--image") g_opt.image = next();
         else if (a == "--ini") g_opt.ini = next();
         else if (a == "--outdir") g_opt.outdir = next();
@@ -969,6 +976,24 @@ int main(int argc, char** argv) {
         smoothview::set_zoom_levels(g_opt.zoom_levels > 0 ? g_opt.zoom_levels : levels);
         // "Zoom Details" (PRACX's): improvements, units and bases drawn when zoomed out too.
         smoothview::set_zoom_details(g_opt.zoom_details || (played && ini_int("Zoom Details", 1, 0, 1) != 0));
+    }
+    // Thinker's features (thinker/thinker.h): a player's game reads the [Thinker] section's options
+    // (Thinker's names); a scripted run only --thinker KEY=VALUE.
+    if (played) {
+        int count = 0;
+        const char* const* names = thinker::option_names(&count);
+        for (int i = 0; i < count; i++) {
+            char buf[32] = "";
+            win32::GetPrivateProfileStringA("Thinker", names[i], "", buf, sizeof(buf), ini_copy.c_str());
+            if (buf[0]) thinker::set_option(names[i], buf);
+        }
+    }
+    for (const std::string& kv : g_opt.thinker) {
+        const size_t eq = kv.find('=');
+        if (eq == std::string::npos || !thinker::set_option(kv.substr(0, eq).c_str(), kv.c_str() + eq + 1)) {
+            std::fprintf(stderr, "opensmac: --thinker: unknown option %s\n", kv.c_str());
+            return 2;
+        }
     }
     // The harness's deterministic clock (engine/clock.h): the same keys give the same game.
     engine_set_deterministic(true);

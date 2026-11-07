@@ -53,9 +53,9 @@ if(NOT OPENSMAC_HYBRID AND OPENSMAC_COVERAGE)
 endif()
 
 # --- engine sources and generated bindings ----------------------------------------------------
-file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/engine/*.cpp src/platform/*.cpp)
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS src/engine/*.cpp src/platform/*.cpp src/thinker/*.cpp)
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/src/platform/sdl/")  # native UI backend (OpenSMAC only)
-file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS src/engine/*.h src/platform/*.h)
+file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS src/engine/*.h src/platform/*.h src/thinker/*.h)
 file(GLOB HEADLESS_SOURCES_FOR_GEN CONFIGURE_DEPENDS src/headless/*.cpp)
 # gen_bindings also reads the UI's declarations and definitions (src/ui: ADDR_NATIVE functions).
 file(GLOB UI_FILES_FOR_GEN CONFIGURE_DEPENDS src/ui/*.cpp src/ui/*.h)

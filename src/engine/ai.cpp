@@ -34,6 +34,7 @@
 #include "engine/world.h"
 #include "engine/zoc.h"
 #include "engine/table_at.h"
+#include "thinker/thinker.h"
 
 namespace {
 inline int32_t tile_region(int32_t x, int32_t y) { return map_tile(x, y)->region; }
@@ -505,7 +506,7 @@ int32_t GAMEAPI enemy_veh(int32_t veh_id) {
     VEH& v = game().vehs[veh_id];
     if (!v.moves_spent || v.order != ORDER_MOVE_TO || Units[v.unit_id].plan == PLAN_NAVAL_TRANSPORT ||
         (v.state & VSTATE_EXPLORE) || zoc_any(v.x, v.y, faction_id)) {
-        if (enemy_move(veh_id)) return 1;
+        if (thinker::enemy_move(veh_id)) return 1;  // the original's enemy_move unless a Thinker feature applies
         if (veh_moves_done(veh_id)) {
             if (MultiplayerActive) log_say_values("Enemy Vehicle DONE", veh_id, 0, 0);
             if (synch) {
