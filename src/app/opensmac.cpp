@@ -36,6 +36,9 @@
 // The map view. A player's game moves it smoothly (ui/smoothview.h) unless the ini's "Smooth Scroll"
 // ([Alpha Centauri] section) is 0; runs with --outdir move it as the original unless --smooth is given.
 // A two-finger scroll (the wheel) zooms about the pointer: "Scroll Zoom" 1 (up zooms in), -1, 0 (off).
+// The mouse at a screen edge scrolls as in PRACX ("Scroll Area", "Scroll Min", "Scroll Max"), and
+// the zoom keys step through PRACX's zoom levels ("Zoom Levels", default 6; 0: the original's steps),
+// in a player's game; runs with --outdir use the original's steps unless --zoom-levels N is given.
 //
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
@@ -165,6 +168,7 @@ struct Options {
     std::string mods;  // --mods DIR ("none": no mods folder)
     bool mods_given = false;
     bool smooth = false;  // --smooth: the smooth map view in a test run
+    int zoom_levels = 0;  // --zoom-levels N: the zoom levels in a test run
     std::string dump, like;  // --dump FILE [--like REF]: map canvas dump (ui_mapdump_like)
     std::string basedump;  // --basedump BASE:FILE: the base window's canvases (the oracle's basedump)
     int scroll_x = -1, scroll_y = -1;  // --scroll-from X,Y: the dump's redraw scrolls from there
@@ -763,7 +767,7 @@ int usage() {
         "                [--keys K1,K2,..] [--exit-after-keys] [--animate] [--turns N] [--shot FILE.bmp]\n"
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
-        "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth]\n"
+        "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth] [--zoom-levels N]\n"
         "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
         "                [--nosound] [--original-bugs]\n");
@@ -796,7 +800,8 @@ int main(int argc, char** argv) {
             g_opt.mods_given = true;
         } else if (a == "--smooth") {
             g_opt.smooth = true;
-        } else if (a == "--image") g_opt.image = next();
+        } else if (a == "--zoom-levels") g_opt.zoom_levels = std::atoi(next().c_str());
+        else if (a == "--image") g_opt.image = next();
         else if (a == "--ini") g_opt.ini = next();
         else if (a == "--outdir") g_opt.outdir = next();
         else if (a == "--viewer") g_opt.viewer = std::atoi(next().c_str());
@@ -943,6 +948,20 @@ int main(int argc, char** argv) {
         // "Scroll Zoom": 1 (a two-finger scroll up zooms in), -1 (the reverse), 0 (none).
         win32::GetPrivateProfileStringA("Alpha Centauri", "Scroll Zoom", "1", buf, sizeof(buf), ini_copy.c_str());
         smoothview::set_wheel_zoom(std::clamp(std::atoi(buf), -1, 1));
+        // The mouse at a screen edge, PRACX's way: "Scroll Area" (the band's width in pixels at a
+        // screen 1024 wide; 0: none), "Scroll Min" and "Scroll Max" (tiles per second at the
+        // band's inner edge and at the screen's).
+        auto ini_int = [&](const char* key, int def, int lo, int hi) {
+            win32::GetPrivateProfileStringA("Alpha Centauri", key, std::to_string(def).c_str(), buf, sizeof(buf),
+                                            ini_copy.c_str());
+            return std::clamp(std::atoi(buf), lo, hi);
+        };
+        const int slow = ini_int("Scroll Min", 1, 0, 100);
+        smoothview::set_edge_scroll(ini_int("Scroll Area", 40, 0, 400), slow, ini_int("Scroll Max", 20, slow, 100));
+        // "Zoom Levels" (PRACX's): the zoom keys step through this many zooms spaced from the whole
+        // map to a close view; 0: the original's steps. A player's game; tests only with --zoom-levels.
+        const int levels = played ? ini_int("Zoom Levels", 6, 0, 16) : 0;
+        smoothview::set_zoom_levels(g_opt.zoom_levels > 0 ? g_opt.zoom_levels : levels);
     }
     // The harness's deterministic clock (engine/clock.h): the same keys give the same game.
     engine_set_deterministic(true);

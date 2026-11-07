@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <vector>
 
 namespace smoothview {
 
@@ -96,11 +98,76 @@ inline int32_t wheel_zoom(double* acc, double dy, double step, int32_t direction
     return 0;
 }
 
-// The mouse against a screen edge on one axis: -1 at the low edge, 1 at the high one, else 0.
-inline int32_t edge_axis(int32_t pos, int32_t size, int32_t band) {
-    if (pos < band) return -1;
-    if (pos >= size - band) return 1;
-    return 0;
+// Edge scrolling as PRACX's: the pointer within `band` pixels of an edge on an axis scrolls that
+// way, the nearer the edge the faster: `slow` at the band's inner pixel, `fast` at the screen's
+// edge pixel (both in tiles per second). Negative towards the low edge; 0 away from the edges.
+inline double edge_rate(int32_t pos, int32_t size, int32_t band, double slow, double fast) {
+    if (band <= 0 || pos < 0 || pos >= size) return 0;
+    int32_t depth = -1;  // 0 at the band's inner pixel, band - 1 at the screen's edge
+    double sign = 1;
+    if (pos < band) depth = band - 1 - pos, sign = -1;
+    else if (pos >= size - band) depth = pos - (size - band);
+    if (depth < 0) return 0;
+    return sign * (slow + (fast - slow) * (depth + 1) / band);
+}
+
+// A tile at `zoom` is 8 * q pixels wide and 4 * q high (pfncZoomProcessing's q).
+inline int32_t tile_q(int32_t zoom) {
+    const int32_t q = (50 * (zoom + 16) / 16 + 1) / 4;
+    return q < 1 ? 1 : q;
+}
+
+// Zoom levels as PRACX's: `count` zooms spaced evenly from the one that shows the whole map (no
+// further out than the engine's -14) to the one that shows about six tiles across (no further
+// in than its 16), the original's zoom 0 among them, all even as the original's are. `width`
+// and `height`: the map's part of the screen; `map_w`, `map_h`: MapAreaX and MapAreaY (a tile
+// is two of either). Fewer than `count` where the levels would repeat; none for count < 2.
+inline std::vector<int32_t> zoom_levels(int32_t count, int32_t width, int32_t height, int32_t map_w, int32_t map_h) {
+    std::vector<int32_t> levels;
+    if (count < 2) return levels;
+    int32_t lo = 0;
+    while (lo > -14 && (4 * tile_q(lo) * map_w > width || 2 * tile_q(lo) * map_h > height)) lo -= 2;
+    int32_t hi = 0;
+    while (hi < 16 && width / (8 * tile_q(hi)) > 6 && height / (4 * tile_q(hi)) > 3) hi += 2;
+    const double step = (double)(hi - lo) / (count - 1);
+    for (int32_t i = 0; i < count; i++) {
+        const int32_t z = (int32_t)std::lround((lo + step * i) / 2) * 2;
+        if (levels.empty() || levels.back() != z) levels.push_back(z);
+    }
+    if (std::find(levels.begin(), levels.end(), 0) == levels.end()) {
+        if (levels.size() < 3) {
+            levels.insert(std::upper_bound(levels.begin(), levels.end(), 0), 0);
+        } else {  // the inner level nearest to zero becomes it
+            auto nearest = std::min_element(levels.begin() + 1, levels.end() - 1,
+                                            [](int32_t a, int32_t b) { return std::abs(a) < std::abs(b); });
+            *nearest = 0;
+        }
+    }
+    return levels;
+}
+
+// A zoom key with the levels (not empty): the zoom it leads to from `zoom`, whose nearest level
+// is where the view is now. `command` as pfncProcZoomKey's: 0x203 in, 0x204 out, 0x205 the
+// original's zoom 0, 0x206 one level out from it (the original's -6), 0x207 the innermost
+// level, 0x208 the outermost.
+inline int32_t zoom_to(const std::vector<int32_t>& levels, int32_t zoom, int32_t command) {
+    const int32_t last = (int32_t)levels.size() - 1;
+    int32_t at = 0, zero = 0;
+    for (int32_t i = 1; i <= last; i++) {
+        if (std::abs(levels[(size_t)i] - zoom) <= std::abs(levels[(size_t)at] - zoom)) at = i;
+    }
+    for (int32_t i = 0; i <= last; i++) {
+        if (levels[(size_t)i] == 0) zero = i;
+    }
+    switch (command) {
+    case 0x203: return levels[(size_t)std::min(at + 1, last)];
+    case 0x204: return levels[(size_t)std::max(at - 1, 0)];
+    case 0x205: return levels[(size_t)zero];
+    case 0x206: return levels[(size_t)std::max(zero - 1, 0)];
+    case 0x207: return levels[(size_t)last];
+    case 0x208: return levels[0];
+    default: return zoom;
+    }
 }
 
 }  // namespace smoothview

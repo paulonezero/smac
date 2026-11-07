@@ -6,6 +6,11 @@
 // fingers on a trackpad (or a scroll wheel) zoom, about the pointer. The map is redrawn for every
 // frame, so its units and names stay live.
 //
+// The edge scrolling and the zoom levels follow PRACX (PlotinusRedux's patch for the Windows
+// game): the pointer within a band at a screen edge scrolls, faster the nearer the edge, in
+// tiles per second; the zoom keys step through a few levels spaced from the whole map to a close
+// view, instead of the original's sixteen steps of two.
+//
 // The game does not see this. A glide sets the view at once, as the original, and only the picture
 // lags behind while the game waits for it. A pan runs only from the main loop, with the game
 // waiting for input, and clicks during one find the right tile (MapWin pixel_x / pixel_y, which
@@ -26,6 +31,16 @@ void set_enabled(bool on, bool unattended);
 // The wheel's zoom: 1 (a scroll up zooms in, the default), -1 (the reverse), 0 (none). It works
 // with the smooth view off too, then with the original's redraw.
 void set_wheel_zoom(int32_t direction);
+// The mouse at a screen edge: the band's width in pixels at a screen 1024 wide (scaled with the
+// screen; 0: no edge scrolling), and the speeds at its inner pixel and at the screen's edge in
+// tiles per second. PRACX's defaults: 40, 1, 20.
+void set_edge_scroll(int32_t area, int32_t slow, int32_t fast);
+// The zoom keys (and the wheel) step the main view through this many levels (zoom_levels in
+// smoothview_math.h); below 2: the original's steps. Works with the smooth view off too.
+void set_zoom_levels(int32_t count);
+// pfncProcZoomKey: a zoom key for `win` with the levels: true with the window's zoom set (the
+// caller then redraws, smoothly or not); false for the original's steps.
+bool zoom_key(uint8_t* win, int32_t command);
 
 // pfncZoomProcessing's end: a view that is off the tile grid applies it here.
 void apply(uint8_t* win);

@@ -1449,18 +1449,20 @@ void THISCALL pfncProcZoomKey(uint8_t*, int32_t command, int32_t index) {
         int32_t& zoom = map_win(w).zoom;
         smoothview::ZoomFrom from;
         const bool smooth = smoothview::zoom_capture(w, &from);
-        switch (command) {
-        case 0x203:
-            if (zoom < 0x10) zoom += 2;
-            break;
-        case 0x204:
-            if (-0xE < zoom) zoom -= 2;
-            break;
-        case 0x205: zoom = 0; break;
-        case 0x206: zoom = -6; break;
-        case 0x207: zoom = 0x10; break;
-        case 0x208: zoom = -0xE; break;
-        default: break;
+        if (!smoothview::zoom_key(w, command)) {  // the original's steps, without the zoom levels
+            switch (command) {
+            case 0x203:
+                if (zoom < 0x10) zoom += 2;
+                break;
+            case 0x204:
+                if (-0xE < zoom) zoom -= 2;
+                break;
+            case 0x205: zoom = 0; break;
+            case 0x206: zoom = -6; break;
+            case 0x207: zoom = 0x10; break;
+            case 0x208: zoom = -0xE; break;
+            default: break;
+            }
         }
         if (smooth) smoothview::zoom_glide(w, from);
         else pfncRedrawMap(w, 1);

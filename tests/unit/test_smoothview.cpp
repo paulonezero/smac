@@ -51,13 +51,96 @@ TEST_CASE("smoothview: easing and durations") {
     CHECK(glide_too_far(3001, 1000));
 }
 
-TEST_CASE("smoothview: the mouse at a screen edge") {
-    CHECK(edge_axis(0, 1470, 2) == -1);
-    CHECK(edge_axis(1, 1470, 2) == -1);
-    CHECK(edge_axis(2, 1470, 2) == 0);
-    CHECK(edge_axis(1467, 1470, 2) == 0);
-    CHECK(edge_axis(1468, 1470, 2) == 1);
-    CHECK(edge_axis(1469, 1470, 2) == 1);
+TEST_CASE("smoothview: the mouse at a screen edge scrolls, faster the nearer the edge") {
+    // PRACX's defaults at 1024 wide: a band of 40 pixels, 1 to 20 tiles per second.
+    CHECK(edge_rate(0, 1024, 40, 1, 20) == doctest::Approx(-20));  // the edge pixel: full speed
+    CHECK(edge_rate(39, 1024, 40, 1, 20) == doctest::Approx(-1.475));  // the inner pixel: nearly the slowest
+    CHECK(edge_rate(20, 1024, 40, 1, 20) == doctest::Approx(-10.5));  // half way
+    CHECK(edge_rate(40, 1024, 40, 1, 20) == 0);  // out of the band
+    CHECK(edge_rate(983, 1024, 40, 1, 20) == 0);
+    CHECK(edge_rate(984, 1024, 40, 1, 20) == doctest::Approx(1.475));
+    CHECK(edge_rate(1023, 1024, 40, 1, 20) == doctest::Approx(20));
+    // Symmetrical: the same depth gives the same speed either way.
+    for (int32_t d = 0; d < 40; d++) CHECK(edge_rate(d, 1024, 40, 1, 20) == doctest::Approx(-edge_rate(1023 - d, 1024, 40, 1, 20)));
+    // Off the screen, or no band: nothing.
+    CHECK(edge_rate(-1, 1024, 40, 1, 20) == 0);
+    CHECK(edge_rate(1024, 1024, 40, 1, 20) == 0);
+    CHECK(edge_rate(0, 1024, 0, 1, 20) == 0);
+    // One speed when both are the same.
+    CHECK(edge_rate(0, 1024, 40, 5, 5) == doctest::Approx(-5));
+    CHECK(edge_rate(39, 1024, 40, 5, 5) == doctest::Approx(-5));
+}
+
+TEST_CASE("smoothview: a tile's size by zoom") {
+    CHECK(tile_q(0) == 12);  // 96 x 48 at zoom 0: the sprites' own size
+    CHECK(tile_q(16) == 25);
+    CHECK(tile_q(-14) == 1);
+    CHECK(tile_q(-16) == 1);  // never less than one
+    CHECK(tile_q(-10) == 4);
+}
+
+TEST_CASE("smoothview: zoom levels from the whole map to a close view") {
+    // The game's screen 1470 x 1000 less the console (213), a map of 80 x 80: at zoom -10 a
+    // tile is 32 wide, so the map's 40 tiles are 1280 wide and fit; at -8 (48 wide) they do not.
+    // Zoom 16 (200 wide) is the engine's limit before the view shows six tiles across. Six levels
+    // 5.2 apart, each rounded to the original's even grid: -10, -4, 0, 6, 10, 16.
+    CHECK(zoom_levels(6, 1470, 787, 80, 80) == std::vector<int32_t>{-10, -4, 0, 6, 10, 16});
+    // The tests' 1024 x 768: the map (1280 wide at -10) only fits at -12, and at zoom 8 (a tile
+    // 152 wide) the view is down to six tiles across.
+    CHECK(zoom_levels(6, 1024, 555, 80, 80) == std::vector<int32_t>{-12, -8, -4, 0, 4, 8});
+    CHECK(zoom_levels(4, 1024, 555, 128, 128) == std::vector<int32_t>{-14, -6, 0, 8});  // a huge map: -14 at most
+    // Three levels 11 apart would be -14, -4, 8: the inner one nearest to zero becomes 0.
+    CHECK(zoom_levels(3, 1024, 555, 128, 128) == std::vector<int32_t>{-14, 0, 8});
+    // A tiny map fits at zoom 0: the levels only zoom in.
+    CHECK(zoom_levels(3, 1024, 555, 16, 16) == std::vector<int32_t>{0, 4, 8});
+    // Two levels, neither 0: 0 is added between them.
+    CHECK(zoom_levels(2, 1470, 787, 80, 80) == std::vector<int32_t>{-10, 0, 16});
+    // Too many levels for the grid: the repeats are dropped.
+    CHECK(zoom_levels(40, 1470, 787, 80, 80).size() == 14);
+    CHECK(zoom_levels(1, 1470, 787, 80, 80).empty());
+    // Whatever the screen and the map: increasing, even, within the engine's range, with 0.
+    for (int32_t w : {1024, 1470, 1920, 2560}) {
+        for (int32_t h : {555, 787, 867, 1227}) {
+            for (int32_t m : {24, 64, 80, 128, 256}) {
+                for (int32_t count : {2, 3, 6, 9, 16}) {
+                    const std::vector<int32_t> levels = zoom_levels(count, w, h, m, m);
+                    REQUIRE(levels.size() >= 2);
+                    CHECK(levels.size() <= (size_t)std::max(count, 3));
+                    CHECK(std::find(levels.begin(), levels.end(), 0) != levels.end());
+                    for (size_t i = 0; i < levels.size(); i++) {
+                        CHECK(levels[i] % 2 == 0);
+                        CHECK((levels[i] >= -14 && levels[i] <= 16));
+                        if (i) CHECK(levels[i] > levels[i - 1]);
+                    }
+                    // The outermost level shows the whole map, or is -14.
+                    const int32_t q = tile_q(levels.front());
+                    CHECK((levels.front() == -14 || (4 * q * m <= w && 2 * q * m <= h)));
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("smoothview: the zoom keys step through the levels") {
+    const std::vector<int32_t> levels{-10, -4, 0, 6, 10, 16};
+    CHECK(zoom_to(levels, 0, 0x203) == 6);  // in
+    CHECK(zoom_to(levels, 0, 0x204) == -4);  // out
+    CHECK(zoom_to(levels, 16, 0x203) == 16);  // at the limits: as it is
+    CHECK(zoom_to(levels, -10, 0x204) == -10);
+    CHECK(zoom_to(levels, 10, 0x205) == 0);  // the original's zoom 0
+    CHECK(zoom_to(levels, 10, 0x206) == -4);  // one level out from it (the original's -6)
+    CHECK(zoom_to(levels, 0, 0x207) == 16);  // the innermost
+    CHECK(zoom_to(levels, 0, 0x208) == -10);  // the outermost
+    CHECK(zoom_to(levels, 0, 0x999) == 0);
+    // A zoom between levels (a loaded game's, or the right-click menu's -8): from its nearest level,
+    // the inner one when half way.
+    CHECK(zoom_to(levels, -8, 0x203) == -4);
+    CHECK(zoom_to(levels, -8, 0x204) == -10);
+    CHECK(zoom_to(levels, -7, 0x203) == 0);  // nearest -4, then in
+    CHECK(zoom_to(levels, 8, 0x204) == 6);  // half way between 6 and 10: from 10, out
+    CHECK(zoom_to(levels, -20, 0x203) == -4);  // beyond the range: from the end
+    // Levels without a step out from zero: it stays.
+    CHECK(zoom_to(std::vector<int32_t>{0, 8, 16}, 8, 0x206) == 0);
 }
 
 TEST_CASE("smoothview: a change of zoom keeps the map point at the anchor") {

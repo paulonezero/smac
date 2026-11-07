@@ -80,6 +80,12 @@ Settings in Alpha Centauri.Ini, section [Alpha Centauri] (read at start):
   Smooth Scroll=1      0: the map view moves in the original's steps
   Scroll Zoom=1        a two-finger scroll (or the wheel) zooms the map about the pointer;
                        -1: scrolling up zooms out instead; 0: no zoom by scrolling
+  Scroll Area=40       the mouse within this many pixels of a screen edge (at a screen 1024
+                       wide; wider screens scale it) scrolls the map; 0: never
+  Scroll Min=1         the scrolling speed in tiles per second at the band's inner edge...
+  Scroll Max=20        ...and at the screen's edge
+  Zoom Levels=6        Z, X and the wheel step through this many zoom levels, spaced from
+                       the whole map to a close view; 0: the original's sixteen steps
 
 The start option --size WxH (e.g. --size 1280x1024) overrides them for one run, in a window.
 

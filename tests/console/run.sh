@@ -69,6 +69,15 @@ if grep viewpoint "$OUT/smooth_zoom.log" | awk '{split($10, p, ","); x[NR]=p[1];
 else echo "FAIL smooth_zoom: the point moved"; FAIL=1; fi
 run smooth_glide --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,S-RIGHT,WAIT:500,UNITS"
 check smooth_glide "a move of the view glides" "view glide: [0-9]+ frames"
+# PRACX's zoom levels (--zoom-levels 6): x steps out to the level before 0, four more reach the
+# outermost (the whole map) and stay there, ctrl+Z goes to the innermost, z there changes nothing.
+run zoom_levels --new size=2 --human 1 --seed 1,2 --smooth --zoom-levels 6 --keys "ENTER,WAIT:50,VIEWPOINT,x,WAIT:250,VIEWPOINT,x,WAIT:250,x,WAIT:250,x,WAIT:250,x,WAIT:250,VIEWPOINT,C-z,WAIT:250,VIEWPOINT,z,WAIT:250,VIEWPOINT"
+check zoom_levels "the levels are listed, with the original's zoom 0" "zoom levels: -[0-9]+( -?[0-9]+)* 0( [0-9]+)+$"
+if awk '/^zoom levels:/ {n=NF-2; for (i=3; i<=NF; i++) {l[i-2]=$i; if ($i==0) z=i-2}} /^viewpoint:/ {v[++m]=$3}
+        END {exit !(m==5 && v[1]==0 && v[2]==l[z-1] && v[3]==l[1] && v[4]==l[n] && v[5]==l[n])}' "$OUT/zoom_levels.log"; then
+    echo "PASS zoom_levels: the zoom keys step through the levels"
+else echo "FAIL zoom_levels: the zoom keys step through the levels"; FAIL=1; fi
+nocrash zoom_levels
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys
 

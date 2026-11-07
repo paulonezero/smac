@@ -23,12 +23,12 @@ namespace {
 
 constexpr int32_t kFrameMs = 16;
 constexpr int32_t kSettleMs = 140;  // no pan input for this long: back onto the grid
-constexpr int32_t kEdgeBand = 2;  // screen pixels
-constexpr int32_t kEdgeDelayMs = 120;  // the mouse waits this long at an edge before it scrolls
-constexpr double kEdgeSpeed = 1100;  // pixels per second
 constexpr double kWheelStep = 3.0;  // the wheel's units (a notch; fractions on a trackpad) per zoom step
+constexpr int32_t kConsoleWidth = 1024;  // the console at the bottom of the screen, centred
 
 bool g_enabled = false, g_unattended = false;
+int32_t g_edge_area = 40, g_edge_slow = 1, g_edge_fast = 20;  // set_edge_scroll
+int32_t g_zoom_levels = 0;  // set_zoom_levels
 
 // The view off the grid. `pan`: it stays there between frames, and the view follows it (a glide's
 // picture is only drawn there, the view being at the target already).
@@ -42,11 +42,12 @@ struct Override {
 std::vector<uint8_t> g_picture;  // the picture a zoom scales
 
 bool g_running = false;  // a glide is in progress
+bool g_edge = false;  // the pointer at a screen edge is scrolling
 int32_t g_mouse_x = -1, g_mouse_y = -1;
 double g_wheel = 0;  // the wheel's scroll not yet a zoom step
 int32_t g_wheel_zoom = 1;  // set_wheel_zoom
 int32_t g_wheel_steps = 0;  // zoom steps asked for, done by tick
-uint32_t g_last_tick = 0, g_last_input = 0, g_edge_since = 0;
+uint32_t g_last_tick = 0, g_last_input = 0;
 double g_min_y = 0, g_max_y = 0, g_min_x = 0, g_max_x = 0;
 
 uint8_t* view() { return MapWins[0]; }
@@ -104,6 +105,32 @@ void set_enabled(bool on, bool unattended) {
 }
 
 void set_wheel_zoom(int32_t direction) { g_wheel_zoom = direction; }
+
+void set_edge_scroll(int32_t area, int32_t slow, int32_t fast) {
+    g_edge_area = area;
+    g_edge_slow = slow;
+    g_edge_fast = fast;
+}
+
+void set_zoom_levels(int32_t count) { g_zoom_levels = count; }
+
+bool zoom_key(uint8_t* win, int32_t command) {
+    if (g_zoom_levels < 2 || !win || win != view()) return false;
+    // The map's part of the screen: above the console.
+    const std::vector<int32_t> levels =
+        zoom_levels(g_zoom_levels, ScreenWidth, ScreenHeight - MiConsoleHeight, MapAreaX, MapAreaY);
+    if (g_unattended) {
+        static std::vector<int32_t> shown;
+        if (levels != shown) {
+            shown = levels;
+            std::fprintf(stderr, "zoom levels:");
+            for (int32_t z : levels) std::fprintf(stderr, " %d", z);
+            std::fprintf(stderr, "\n");
+        }
+    }
+    map_win(win).zoom = zoom_to(levels, map_win(win).zoom, command);
+    return true;
+}
 
 void apply(uint8_t* win) {
     if (!g_ov.on || win != view()) return;
@@ -293,7 +320,7 @@ ArtScale::~ArtScale() {
 
 bool panning() { return g_ov.on && g_ov.pan; }
 
-bool busy() { return (panning() && !g_ov.hold) || g_edge_since != 0 || g_wheel_steps != 0; }
+bool busy() { return (panning() && !g_ov.hold) || g_edge || g_wheel_steps != 0; }
 
 void mouse(int32_t x, int32_t y) {
     g_mouse_x = x;
@@ -314,8 +341,10 @@ void wheel_zoom_step(uint8_t* win, int32_t step) {
     from.anchor_x = ax;
     from.anchor_y = ay;
     int32_t& zoom = map_win(win).zoom;
-    if (step > 0 && zoom < 0x10) zoom += 2;
-    else if (step < 0 && -0xE < zoom) zoom -= 2;
+    if (!zoom_key(win, step > 0 ? 0x203 : 0x204)) {
+        if (step > 0 && zoom < 0x10) zoom += 2;
+        else if (step < 0 && -0xE < zoom) zoom -= 2;
+    }
     if (smooth) zoom_glide(win, from);
     else pfncRedrawMap(win, 1);
     GraphicWin_redraw(&WorldWin);
@@ -338,8 +367,8 @@ void tick() {
             return;
         }
     }
+    g_edge = false;
     if (!allowed(win) || (!g_ov.on && !roomy(win))) {
-        g_edge_since = 0;
         if (panning() && !g_ov.hold && g_enabled && !g_running && !ui_presenting()) {  // a window opened: back on the grid
             g_ov.on = false;
             draw(win);
@@ -347,20 +376,24 @@ void tick() {
         }
         return;
     }
-    int32_t ex = 0, ey = 0;
+    // The pointer in the band at a screen edge: tiles per second on each axis, by its depth.
+    double rx = 0, ry = 0;
     if ((GamePreferences & PREF_BSC_MOUSE_EDGE_SCROLL_VIEW) && g_mouse_x >= 0 &&
         (g_unattended || platform::window_focused())) {
-        ex = edge_axis(g_mouse_x, ScreenWidth, kEdgeBand);
-        ey = edge_axis(g_mouse_y, ScreenHeight, kEdgeBand);
+        const int32_t band = g_edge_area * ScreenWidth / 1024;
+        rx = edge_rate(g_mouse_x, ScreenWidth, band, g_edge_slow, g_edge_fast);
+        ry = edge_rate(g_mouse_y, ScreenHeight, band, g_edge_slow, g_edge_fast);
+        // Over the console at the bottom of the screen the pointer does not scroll down, unless
+        // at the screen's last few pixels (as PRACX).
+        const int32_t left = (ScreenWidth - kConsoleWidth) / 2;
+        if (ry > 0 && g_mouse_x >= left && g_mouse_x < left + kConsoleWidth &&
+            ScreenHeight - g_mouse_y > 5 * ScreenHeight / 768) {
+            ry = 0;
+        }
     }
-    if (ex || ey) {
-        if (!g_edge_since) g_edge_since = now;
-        if (now - g_edge_since < kEdgeDelayMs) ex = ey = 0;
-    } else {
-        g_edge_since = 0;
-    }
-    const double dx = ex * kEdgeSpeed * dt, dy = ey * kEdgeSpeed * dt;
+    const double dx = rx * map_win(win).tile_w * dt, dy = ry * map_win(win).tile_h * dt;
     if (dx != 0 || dy != 0) {
+        g_edge = true;
         if (!g_ov.on) {
             MapWin& m = map_win(win);
             g_min_y = -2.0 * m.half_h;
