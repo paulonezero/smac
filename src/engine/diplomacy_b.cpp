@@ -26,6 +26,7 @@
 #include "engine/turn.h"
 #include "engine/ui_bridge.h"
 #include "engine/veh.h"
+#include "thinker/thinker.h"
 #include "platform/win32.h"
 
 namespace {
@@ -301,7 +302,7 @@ void GAMEAPI enemies_war(int32_t faction_id, int32_t faction_id_with) {
         parse_says(4, get_noun(other), -1, -1);
         label = "PACTATTACKS";
     }
-    if (label) NetMsg_pop(&NetMsg, label, 5000, 0, nullptr);
+    if (label) thinker::treaty_message(label, 5000, 0, nullptr);
     treaty_on(faction_id, faction_id_with, 0x10);
     uint32_t& mine = f1.diplo_status[faction_id_with];
     if (!(mine & 0x40000000)) trade_maps(faction_id, faction_id_with);
@@ -493,7 +494,7 @@ void GAMEAPI enemies_treaty(int32_t faction_id, int32_t faction_id_with, int32_t
             parse_says(6, get_noun(other), -1, -1);
             label = "PACTTRUCE";
         }
-        if (label) NetMsg_pop(&NetMsg, label, 5000, 0, nullptr);
+        if (label) thinker::treaty_message(label, 5000, 0, nullptr);
         treaty_on(p1, p2, 4);
         return;
     }
@@ -519,7 +520,7 @@ void GAMEAPI enemies_treaty(int32_t faction_id, int32_t faction_id_with, int32_t
             parse_says(4, get_noun(other), -1, -1);
             label = "PACTTREATY";
         }
-        if (label) NetMsg_pop(&NetMsg, label, 5000, 0, nullptr);
+        if (label) thinker::treaty_message(label, 5000, 0, nullptr);
         treaty_on(p1, p2, 2);
         return;
     }
@@ -570,7 +571,7 @@ void GAMEAPI enemies_treaty(int32_t faction_id, int32_t faction_id_with, int32_t
             crt_strcat(StrBuffer, "ENEMIESTEAMUP");
             if (i != v) crt_strcat(StrBuffer, "1");
             else if (!(status(p1, i) & 0x10) && !(status(p2, i) & 0x10)) crt_strcat(StrBuffer, "0");
-            NetMsg_pop(&NetMsg, StrBuffer, 5000, 0, nullptr);
+            thinker::treaty_message(StrBuffer, 5000, 0, nullptr);
             return;
         }
     }

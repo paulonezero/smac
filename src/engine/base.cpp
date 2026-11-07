@@ -3648,9 +3648,13 @@ void announce_foreign_facility(const Production& p) {
         popp(ScriptFileName, "GENERATOR", 0, "subgen_sm.pcx", 0);
     } else {
         parse_says(0, cur_base().name, -1, -1);
-        if (!(GameState & STATE_GAME_DONE) || (GameState & STATE_FINAL_SCORE_DONE))
-            popp(ScriptFileName, p.is_sat ? "PRODUCE3" : "PRODUCE2", 0, p.is_sat ? "space_sm.pcx" : "secproj_sm.pcx",
-                 0);
+        if (!(GameState & STATE_GAME_DONE) || (GameState & STATE_FINAL_SCORE_DONE)) {
+            if (!thinker::conf.game_event_popup) {  // Thinker's: a note in the message box
+                thinker::event_note(p.is_sat ? "PRODUCE3" : "PRODUCE2", p.is_sat ? "space_sm.pcx" : "secproj_sm.pcx");
+            } else {
+                popp(ScriptFileName, p.is_sat ? "PRODUCE3" : "PRODUCE2", 0, p.is_sat ? "space_sm.pcx" : "secproj_sm.pcx", 0);
+            }
+        }
     }
 }
 // Ascent to Transcendence completed: the game ends (victory of the faction and, with cooperative

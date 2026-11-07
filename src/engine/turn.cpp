@@ -34,6 +34,7 @@
 #include "engine/tech.h"
 #include "engine/ui_bridge.h"
 #include "engine/veh.h"
+#include "thinker/thinker.h"
 #include "engine/world.h"
 #include "engine/util.h"
 #include "engine/zoc.h"
@@ -932,8 +933,13 @@ void GAMEAPI alien_fauna() {
             }
             if (!MapWin_focus(MapWins[0], sx, sy)) draw_tiles(sx, sy, 2);
             parse_says(0, game().bases[base_id].name, -1, -1);
-            if (ocean) POP2("KELPGROWS", "kelp_sm.pcx", -1);
-            else POP2("FORESTGROWS", "forgr_sm.pcx", -1);
+            if (!thinker::conf.game_event_popup) {  // Thinker's: a note in the message box
+                thinker::event_note(ocean ? "KELPGROWS" : "FORESTGROWS", ocean ? "kelp_sm.pcx" : "forgr_sm.pcx");
+            } else if (ocean) {
+                POP2("KELPGROWS", "kelp_sm.pcx", -1);
+            } else {
+                POP2("FORESTGROWS", "forgr_sm.pcx", -1);
+            }
         }
     }
     if (GameRules & RULES_SCN_NO_NATIVE_LIFE) return;
@@ -1060,6 +1066,7 @@ void GAMEAPI do_fungal_towers() {
 }
 
 void GAMEAPI turn_upkeep() {
+    thinker::treaty_messages_reset();  // a new turn: a treaty change may be a popup again
     // Aircraft out of their base: range turns count up; at the limit they crash.
     for (int32_t veh_id = game().veh_count - 1; veh_id >= 0; veh_id--) {
         VEH& veh = game().vehs[veh_id];

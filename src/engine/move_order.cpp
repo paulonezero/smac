@@ -34,6 +34,7 @@
 #include "engine/veh.h"
 #include "engine/zoc.h"
 #include "engine/table_at.h"
+#include "thinker/thinker.h"
 
 namespace {
 inline bool is_human(int32_t faction_id) { return (FactionStatus[0] & (uint8_t)(1u << (faction_id & 31))) != 0; }
@@ -650,7 +651,7 @@ Step OrderVeh::probe_captured() {
     if (tgt_faction == CurrentPlayerFaction) {
         parse_says(0, faction_adj(faction_id), -1, -1);
         say_title(1, tgt_faction);
-        NetMsg_pop(&NetMsg, "GOTMYPROBE", 5000, 0, nullptr);
+        thinker::treaty_message("GOTMYPROBE", 5000, 0, nullptr);
     } else if (faction_id == CurrentPlayerFaction) {
         parse_says(0, faction_adj(tgt_faction), -1, -1);
         say_title(1, faction_id);

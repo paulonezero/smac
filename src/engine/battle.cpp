@@ -32,6 +32,7 @@
 #include "engine/veh.h"
 #include "engine/world.h"
 #include "engine/zoc.h"
+#include "thinker/thinker.h"
 #include "engine/table_at.h"
 
 
@@ -1223,13 +1224,11 @@ void GAMEAPI promote(int32_t veh_id) {
         (FactionStatus[0] & (uint8_t)(1 << (game().vehs[veh_id].faction_id & 31))) &&
         before != morale_veh(veh_id, 1, 0)) {
         parse_says(1, Units[game().vehs[veh_id].unit_id].name, -1, -1);
-        if (game().vehs[veh_id].unit_id < 64 && weapon_value(game().vehs[veh_id].unit_id) < 0) {
-            parse_say(0, Morale[morale_veh(veh_id, 1, 0)].name_lifecycle, -1, -1);
-            NetMsg_pop(&NetMsg, "MORALE2", -5000, 0, "batwon_sm.pcx");
-            return;
-        }
-        parse_say(0, Morale[morale_veh(veh_id, 1, 0)].name, -1, -1);
-        NetMsg_pop(&NetMsg, "MORALE", -5000, 0, "batwon_sm.pcx");
+        // Thinker's game_event_popup=0: a note in the message box, not a popup.
+        const bool native = game().vehs[veh_id].unit_id < 64 && weapon_value(game().vehs[veh_id].unit_id) < 0;
+        parse_say(0, native ? Morale[morale_veh(veh_id, 1, 0)].name_lifecycle : Morale[morale_veh(veh_id, 1, 0)].name, -1, -1);
+        if (!thinker::conf.game_event_popup) thinker::event_note(native ? "MORALE2" : "MORALE", "batwon_sm.pcx");
+        else NetMsg_pop(&NetMsg, native ? "MORALE2" : "MORALE", -5000, 0, "batwon_sm.pcx");
     }
 }
 

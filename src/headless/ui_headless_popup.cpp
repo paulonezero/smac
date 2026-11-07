@@ -21,6 +21,7 @@ int32_t GAMEAPI POP2(const char*, const char*, int32_t) { return 0; }
 int32_t GAMEAPI POP3(const char*, int32_t, int32_t, int32_t, int32_t) { return 0; }
 // Message box dismissed (returns 0).
 int32_t THISCALL NetMsg_pop(uint8_t*, const char*, int32_t, int32_t, const char*) { return 0; }
+int32_t GAMEAPI NetMsg_note(const char*, int32_t, const char*) { return 0; }
 void THISCALL NetMsg_close(uint8_t*) {}
 // crash_landing: no animation; the first base keeps its name (the FIRSTBASE question is not asked).
 void ui_crash_landing_drop(int32_t, int32_t, bool) {}

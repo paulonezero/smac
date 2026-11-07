@@ -277,16 +277,9 @@ bool g_netmsg_shown = false;  // +0x5384
 uint32_t g_netmsg_until = 0;  // the timer's end (0: none)
 }  // namespace
 
-int32_t THISCALL NetMsg_pop(uint8_t*, const char* label, int32_t delay, int32_t a3, const char* pcx) {
-    const bool modal = a3 == 0 || (a3 > 1 && InfcList[InfcUsed] == 0);
-    if (!MultiplayerActive || modal) {
-        PopupHolder h;
-        popup_start(h.pop, ScriptFileName, label, -1, nullptr, 0);
-        if (MultiplayerActive) ui_net_note(std::string("netmsg ") + label + ": " + BasePop_text(h.pop));
-        if (pcx && !MultiplayerActive && delay < 0) BasePop_set_picture(h.pop, pcx);
-        BasePop_exec_3(h.pop, 0, 0);
-        return 0;
-    }
+namespace {
+// The NetMsg box: shown without waiting, hidden by the next one, NetMsg_close or its timer.
+int32_t netmsg_box(const char* label, int32_t delay) {
     if (!g_netmsg) g_netmsg = popup_new();
     if (g_netmsg_shown) {
         g_netmsg_shown = false;
@@ -310,6 +303,24 @@ int32_t THISCALL NetMsg_pop(uint8_t*, const char* label, int32_t delay, int32_t 
     PopupDialogState = 0;
     return 0;
 }
+}  // namespace
+
+int32_t THISCALL NetMsg_pop(uint8_t*, const char* label, int32_t delay, int32_t a3, const char* pcx) {
+    const bool modal = a3 == 0 || (a3 > 1 && InfcList[InfcUsed] == 0);
+    if (!MultiplayerActive || modal) {
+        PopupHolder h;
+        popup_start(h.pop, ScriptFileName, label, -1, nullptr, 0);
+        if (MultiplayerActive) ui_net_note(std::string("netmsg ") + label + ": " + BasePop_text(h.pop));
+        if (pcx && !MultiplayerActive && delay < 0) BasePop_set_picture(h.pop, pcx);
+        BasePop_exec_3(h.pop, 0, 0);
+        return 0;
+    }
+    return netmsg_box(label, delay);
+}
+
+// Thinker's notes (thinker.h, game_event_popup=0): the NetMsg box in single player too, for
+// `delay` ms, the game going on meanwhile.
+int32_t GAMEAPI NetMsg_note(const char* label, int32_t delay, const char*) { return netmsg_box(label, delay); }
 
 void THISCALL NetMsg_close(uint8_t*) {
     if (g_netmsg_shown) {

@@ -334,6 +334,9 @@ ADDR_NATIVE(0x446A00) void THISCALL FX_play(uint8_t* sounds, int32_t id);
 ADDR_NATIVE(0x446AD0) void THISCALL FX_fade(uint8_t* sounds, int32_t id);
 ADDR_NATIVE(0x47A890)
 int32_t THISCALL NetMsg_pop(uint8_t* msg, const char* label, int32_t delay, int32_t a3, const char* pcx);
+// OpenSMAC's own (thinker.h): the NetMsg box shown without waiting in single player too, for
+// `delay` ms; Thinker's notes in place of popups.
+int32_t GAMEAPI NetMsg_note(const char* label, int32_t delay, const char* pcx);
 ADDR_NATIVE(0x458910) void THISCALL InfoWin_on_redraw(uint8_t* win);
 ADDR_NATIVE(0x5D5A70) void THISCALL GraphicWin_redraw(uint8_t* win);
 // Base window: recomputes and redraws the shown base (base_compute(1)) when it is visible and

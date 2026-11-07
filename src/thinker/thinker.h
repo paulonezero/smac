@@ -19,6 +19,10 @@
 //                           (build.h: select_build), within the governor's own settings
 //   base_hurry=1|2          with it, the governor hurries facilities (1), projects too (2), by
 //                           Thinker's rules (build.h: governor_hurry)
+//   game_event_popup=0      forest and kelp growth, promotions and other factions' satellites and
+//                           projects go to the message log instead of popups
+//   foreign_treaty_popup=1  treaty changes between other factions are popups, once each a turn
+//   warn_on_former_replace=0  no confirmation when a former order replaces an improvement
 #pragma once
 #include <cstdint>
 
@@ -31,6 +35,12 @@ struct Config {
     int skip_gov_facility = 0;  // bit (id - 1) set: the governor never builds facility id
     int tile_output_limit[3] = {2, 2, 2};  // the original's yield caps before the restriction techs
     int repair_battle_ogre = 0;  // Thinker's: battle ogres repair (1) and use monoliths (10)
+    // Popups (the original's values; Thinker's own defaults are 0, 1, 1):
+    int game_event_popup = 1;  // 0: forest and kelp growth, promotions and other factions' satellites and
+                               // projects are notes in the message log, not popups
+    int foreign_treaty_popup = 0;  // 1: treaty changes between other factions are popups (once each a
+                                   // turn), not notes that fade from the message log
+    int warn_on_former_replace = 1;  // 0: no "replace the improvement?" confirmation for a former order
     // Thinker's rule options the ported code reads, at the values that keep the original's rules.
     int simple_hurry_cost = 0;
     int base_spacing = 3;
@@ -67,5 +77,13 @@ bool base_reset(int32_t base_id, int32_t has_gov);
 // base_hurry's start: with manage_player_bases and base_hurry, the player's governor hurries by
 // Thinker's rules (true: done); else false for the original's.
 bool base_hurry();
+// A note about other factions' treaties (enemies_treaty, enemies_war, a captured probe): with
+// foreign_treaty_popup a popup, each distinct one once a turn, else the original's fading note.
+// `label` and the parse strings 0 and 1 identify it.
+int32_t treaty_message(const char* label, int32_t delay, int32_t a4, const char* pcx);
+void treaty_messages_reset();  // a new turn
+// A game event (forest or kelp growth, a promotion, another faction's satellite or project) with
+// game_event_popup=0: a note in the message box for five seconds, the game going on.
+void event_note(const char* label, const char* pcx);
 
 }  // namespace thinker

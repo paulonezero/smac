@@ -117,6 +117,17 @@ if [ -f "$ROOT/work/thinker_test/t40.sav" ]; then
         echo "PASS thinker_governor: off, the original's governor keeps the base's production"
     else echo "FAIL thinker_governor: off, the original's governor keeps the base's production"; FAIL=1; fi
     nocrash thinker_governor_on
+    # Thinker's popup options: within eight turns a captured mind worm of faction 1 is promoted;
+    # the original announces it with a modal popup (MORALE2), game_event_popup=0 with a note in the
+    # message box (the harness logs it as "netmsg MORALE2: ...").
+    EIGHT="$ETURN,$ETURN,$ETURN,$ETURN,$ETURN,$ETURN,$ETURN,$ETURN"
+    run thinker_popups_off --save work/thinker_test/t40.sav --human 1 --keys "WAIT:50,$AUTOS,$EIGHT,UNITS"
+    run thinker_popups_on --save work/thinker_test/t40.sav --human 1 --thinker game_event_popup=0 --thinker warn_on_former_replace=0 --thinker foreign_treaty_popup=1 --keys "WAIT:50,$AUTOS,$EIGHT,UNITS"
+    check thinker_popups_off "the original announces the promotion with a popup" "^popup MORALE2 shown"
+    check thinker_popups_on "game_event_popup=0: the promotion is a note in the message box" "^netmsg MORALE2: "
+    if ! grep -q '^popup MORALE' "$OUT/thinker_popups_on.log"; then echo "PASS thinker_popups: and no popup"
+    else echo "FAIL thinker_popups: a MORALE popup with game_event_popup=0"; FAIL=1; fi
+    nocrash thinker_popups_on
 fi
 check keys "explore: state 0x4000" "unit 5 f1 Unity Foil \([0-9]+,[0-9]+\) order 0 moves [0-9]+ state 0401?4"
 nocrash keys

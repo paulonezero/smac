@@ -6,6 +6,7 @@
 // versions; their game-state effects, where they have any, are noted at the call.
 #include "ui/statuswin.h"
 #include "ui/console.h"
+#include "thinker/thinker.h"
 #include "ui/smoothview.h"
 #include "ui/infowin.h"
 #include "ui/sound.h"
@@ -1195,7 +1196,8 @@ void THISCALL Console_terraform(uint8_t* self, int32_t veh_id, int32_t type) {
             for (int32_t i = 0; i < 20; i++) {
                 if (Terraform[i].bit & conflict) {
                     parse_say(0, terraform_name(i, a < 0x60), -1, -1);
-                    if (!X_pop("MIMIMI", 0)) return;
+                    // Thinker's warn_on_former_replace=0: no confirmation.
+                    if (thinker::conf.warn_on_former_replace && !X_pop("MIMIMI", 0)) return;
                     break;
                 }
             }

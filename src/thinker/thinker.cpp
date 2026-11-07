@@ -3,9 +3,12 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "engine/ai.h"
 #include "engine/base.h"
+#include "engine/net.h"
+#include "engine/ui_bridge.h"
 #include "thinker/build.h"
 #include "thinker/compat.h"
 #include "thinker/move.h"
@@ -32,8 +35,12 @@ Option g_options[] = {
     {"base_spacing", &conf.base_spacing},
     {"base_nearby_limit", &conf.base_nearby_limit},
     {"max_satellites", &conf.max_satellites},
+    {"game_event_popup", &conf.game_event_popup},
+    {"foreign_treaty_popup", &conf.foreign_treaty_popup},
+    {"warn_on_former_replace", &conf.warn_on_former_replace},
     {"debug", &conf.debug},
 };
+std::string g_treaty_label, g_treaty_item0, g_treaty_item1;  // the last treaty popup's identity
 const char* g_option_names[sizeof(g_options) / sizeof(g_options[0])];
 
 uint32_t g_random_seed = 0;
@@ -57,7 +64,32 @@ const char* const* option_names(int* count) {
     return g_option_names;
 }
 
-bool enabled() { return conf.manage_player_units || conf.manage_player_bases; }
+bool enabled() {
+    return conf.manage_player_units || conf.manage_player_bases || !conf.game_event_popup || conf.foreign_treaty_popup ||
+           !conf.warn_on_former_replace;
+}
+
+// Thinker's mod_NetMsg_pop: the same treaty change announced again in a turn (the original
+// repeats it for each base changing hands, say) stays a fading note; a new one is a popup.
+int32_t treaty_message(const char* label, int32_t delay, int32_t a4, const char* pcx) {
+    if (!conf.foreign_treaty_popup) return NetMsg_pop(&NetMsg, label, delay, a4, pcx);
+    if (std::strcmp(label, "GOTMYPROBE") == 0) return NetMsg_pop(&NetMsg, label, -1, a4, pcx);
+    if (g_treaty_label == label && g_treaty_item0 == ParseStrBuffer[0] && g_treaty_item1 == ParseStrBuffer[1]) {
+        return NetMsg_pop(&NetMsg, label, delay, a4, pcx);  // Skip additional popup windows
+    }
+    g_treaty_label = label;
+    g_treaty_item0 = ParseStrBuffer[0];
+    g_treaty_item1 = ParseStrBuffer[1];
+    return NetMsg_pop(&NetMsg, label, -1, a4, pcx);
+}
+
+void event_note(const char* label, const char* pcx) { NetMsg_note(label, 5000, pcx); }
+
+void treaty_messages_reset() {
+    g_treaty_label.clear();
+    g_treaty_item0.clear();
+    g_treaty_item1.clear();
+}
 
 void random_reseed(uint32_t value) { g_random_seed = value; }
 

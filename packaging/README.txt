@@ -101,6 +101,11 @@ is off unless set, and the game then plays as the original):
                           Thinker's logic, within the governor's own settings
   base_hurry=1            with it, the governor hurries facilities out of your credits by
                           Thinker's rules; 2: secret projects too
+  game_event_popup=0      forest and kelp growth, promotions and other factions' satellites
+                          and projects become notes in the message log, not popups
+  warn_on_former_replace=0  no "replace the improvement?" question on a former order
+  foreign_treaty_popup=1  treaty changes between other factions shown as popups (once each
+                          a turn) instead of notes that fade from the message log
 
 
 5. Notes
