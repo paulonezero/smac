@@ -10,6 +10,7 @@
 #include "engine/map.h"
 #include "engine/ui_bridge.h"
 #include "engine/veh.h"
+#include "ui/smoothview.h"
 #include "ui/colortables.h"
 #include "ui/mapwin.h"
 #include "ui/sprites.h"
@@ -507,17 +508,13 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
             nx = wrap_x(nx + 2);
         }
     }
-    if (MapWinCursorX[MapWinCursorIndex] == x && MapWinCursorY[MapWinCursorIndex] == y)
+    // The cursor's corners, for the main view only: the status pane draws the cursor's tile too
+    // (win null), at its own place, and the cursor would be drawn there.
+    if (win == MapWins[0] && MapWinCursorX[MapWinCursorIndex] == x && MapWinCursorY[MapWinCursorIndex] == y)
         std::memcpy(&CursorTileCorners[0][0], &TileCorners[0][0], sizeof(int32_t) * 8);
     px -= q2 * 2;
     py -= lift + q2;
-    if (ZoomNum < 1) {
-        BlitSourceScale = 0x10;
-        BlitDestScale = zoom + 0x10;
-    } else {
-        BlitDestScale = ZoomNum;
-        BlitSourceScale = ZoomDenom;
-    }
+    smoothview::sprite_scale(win, zoom);
     if ((opts & 0x200) && !unexplored) {
         if ((lm & 0x80000008) == 8) sprite(dest, kSprSpecial, px, py);
         else if ((lm & 0x80000400) == 0x400) sprite(dest, kSprSpecial + 0x2C, px, py);
@@ -639,13 +636,7 @@ int32_t GAMEAPI MapWin_gen_terrain_poly(Buffer* dest, uint8_t* win, int32_t zoom
     }
 
     // ---- sprites ----
-    if (ZoomNum < 1) {
-        BlitSourceScale = 0x10;
-        BlitDestScale = zoom + 0x10;
-    } else {
-        BlitDestScale = ZoomNum;
-        BlitSourceScale = ZoomDenom;
-    }
+    smoothview::sprite_scale(win, zoom);
     if ((no_terrain && !keep_points) || (f >= 0 && !omniscient(f) && !(sq->visibility & (1 << f))))
         return restore_and_return(0);
     // Outline (GamePreferences 0x200) around OutlineCenter for unclaimed tiles.

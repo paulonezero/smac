@@ -257,6 +257,19 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
     ui_invalidate();
 }
 
+void sprite_scale(uint8_t* win, int32_t zoom) {
+    if (ZoomNum >= 1) {
+        BlitDestScale = ZoomNum;
+        BlitSourceScale = ZoomDenom;
+    } else if (g_enabled && win && map_win(win).q >= 1) {
+        BlitDestScale = map_win(win).q;
+        BlitSourceScale = 12;
+    } else {
+        BlitDestScale = zoom + 0x10;
+        BlitSourceScale = 0x10;
+    }
+}
+
 ArtScale::ArtScale(uint8_t* win) {
     if (!g_enabled || ZoomNum >= 1 || !win || map_win(win).q < 1) return;
     num = ZoomNum;

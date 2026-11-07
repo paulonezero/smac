@@ -49,6 +49,10 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from);
 // cannot foresee, a hop at its end. ArtScale sets the engine's fixed zoom factor (ZoomNum /
 // ZoomDenom, as the base window does) to q / 12 (q is 12 at zoom 0, the sprites' own size) for
 // the duration, when none is set. Off (or the original's moves): nothing.
+// The terrain sprites' scale (BlitDestScale / BlitSourceScale: monoliths, pods, farms, mines...)
+// for a tile of `win` at `zoom`: the tiles' own scale while enabled, else the original's.
+void sprite_scale(uint8_t* win, int32_t zoom);
+
 struct ArtScale {
     explicit ArtScale(uint8_t* win);
     ~ArtScale();
