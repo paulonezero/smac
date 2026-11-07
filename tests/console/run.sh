@@ -46,11 +46,15 @@ check keys "hold: order 2" "unit 4 f1 Scout Patrol \(35,7\) order 2 "
 # it): a punctuation key without a virtual-key code never reached the game.
 run keys_sdl $NEW --keys "ENTER,SDLKEY:/,WAIT:300,UNITS"
 check keys_sdl "explore by the / key" "unit 4 f1 Scout Patrol \([0-9]+,[0-9]+\) order [0-9]+ moves [0-9]+ state 0400?4"
-# The smooth map view (--smooth; ui/smoothview.h): off the tile grid while it pans, every tile found
-# where it is drawn, back on the grid when it stops. MOVE: the mouse at a screen edge pans too.
-run smooth_pan --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,SDLWHEEL:5/-3,WAIT:80,VIEWCHECK,WAIT:600,VIEWCHECK"
-check smooth_pan "panned off the grid, tiles found" "viewcheck: panning 1 offset -?[0-9]+,-?[0-9]+: [0-9]+ tiles, 0 wrong"
-check smooth_pan "settled on the grid" "viewcheck: panning 0 offset 0,0: [0-9]+ tiles, 0 wrong"
+# The smooth map view (--smooth; ui/smoothview.h): the mouse at a screen edge (MOVE) pans it off the
+# tile grid, every tile found where it is drawn, back on the grid when it stops. A two-finger scroll
+# (SDLWHEEL) zooms about the pointer, a step per three units; the map point there stays put.
+run smooth_wheel --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,MOVE:300x200,WAIT:50,SDLWHEEL:0/1.5,SDLWHEEL:0/1.5,WAIT:300,VIEWCHECK,SDLWHEEL:0/-3,WAIT:300,VIEWCHECK,SDLWHEEL:0/-1,WAIT:300,VIEWCHECK"
+check smooth_wheel "a scroll up of three units zooms in, animated" "view zoom: [0-9]+ frames, scale 1\.[0-9]+"
+check smooth_wheel "a scroll down of three units zooms out" "view zoom: [0-9]+ frames, scale 0\.[0-9]+"
+if [ "$(grep -c 'view zoom' "$OUT/smooth_wheel.log")" = 2 ]; then echo "PASS smooth_wheel: one unit short of a step zooms nothing"
+else echo "FAIL smooth_wheel: $(grep -c 'view zoom' "$OUT/smooth_wheel.log") zooms, 2 expected"; FAIL=1; fi
+check smooth_wheel "tiles found after the wheel's zooms" "viewcheck: panning 1 offset -?[0-9]+,-?[0-9]+: [0-9]+ tiles, 0 wrong"
 run smooth_edge --new size=2 --human 1 --seed 1,2 --smooth --keys "ENTER,WAIT:50,MOVE:1023x300,WAIT:400,VIEWCHECK,MOVE:500x300,WAIT:600,VIEWCHECK"
 check smooth_edge "the mouse at the edge pans" "viewcheck: panning 1 offset"
 check smooth_edge "and stops when it leaves" "viewcheck: panning 0 offset 0,0"

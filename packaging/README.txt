@@ -78,6 +78,8 @@ Settings in Alpha Centauri.Ini, section [Alpha Centauri] (read at start):
                        largest that leaves the game at least 768 pixels high)
   Fullscreen=1         0: in a window
   Smooth Scroll=1      0: the map view moves in the original's steps
+  Scroll Zoom=1        a two-finger scroll (or the wheel) zooms the map about the pointer;
+                       -1: scrolling up zooms out instead; 0: no zoom by scrolling
 
 The start option --size WxH (e.g. --size 1280x1024) overrides them for one run, in a window.
 

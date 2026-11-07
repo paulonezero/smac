@@ -26,7 +26,7 @@ constexpr int32_t kSettleMs = 140;  // no pan input for this long: back onto the
 constexpr int32_t kEdgeBand = 2;  // screen pixels
 constexpr int32_t kEdgeDelayMs = 120;  // the mouse waits this long at an edge before it scrolls
 constexpr double kEdgeSpeed = 1100;  // pixels per second
-constexpr double kWheelScale = 14;  // pixels per unit of the wheel
+constexpr double kWheelStep = 3.0;  // the wheel's units (a notch; fractions on a trackpad) per zoom step
 
 bool g_enabled = false, g_unattended = false;
 
@@ -43,7 +43,9 @@ std::vector<uint8_t> g_picture;  // the picture a zoom scales
 
 bool g_running = false;  // a glide is in progress
 int32_t g_mouse_x = -1, g_mouse_y = -1;
-double g_wheel_x = 0, g_wheel_y = 0;
+double g_wheel = 0;  // the wheel's scroll not yet a zoom step
+int32_t g_wheel_zoom = 1;  // set_wheel_zoom
+int32_t g_wheel_steps = 0;  // zoom steps asked for, done by tick
 uint32_t g_last_tick = 0, g_last_input = 0, g_edge_since = 0;
 double g_min_y = 0, g_max_y = 0, g_min_x = 0, g_max_x = 0;
 
@@ -100,6 +102,8 @@ void set_enabled(bool on, bool unattended) {
     g_enabled = on;
     g_unattended = unattended;
 }
+
+void set_wheel_zoom(int32_t direction) { g_wheel_zoom = direction; }
 
 void apply(uint8_t* win) {
     if (!g_ov.on || win != view()) return;
@@ -180,6 +184,8 @@ bool zoom_capture(uint8_t* win, ZoomFrom* from) {
     from->half_w = map_win(win).half_w;
     from->half_h = map_win(win).half_h;
     from->zoom = map_win(win).zoom;
+    from->anchor_x = ScreenWidth / 2.0;
+    from->anchor_y = ScreenHeight / 2.0;
     g_picture.assign(n->canvas->data, n->canvas->data + (size_t)n->canvas->stride * n->canvas->height);
     return true;
 }
@@ -195,7 +201,7 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
     g_ov.on = false;
     pfncZoomProcessing(win);  // the new zoom's sizes, on the grid
     const int32_t half_w = m.half_w, half_h = m.half_h;
-    const double sx = ScreenWidth / 2.0, sy = ScreenHeight / 2.0;
+    const double sx = from.anchor_x, sy = from.anchor_y;
     Pos to = position(win);
     if (roomy(win)) {
         to.x = zoom_axis(from.at.x, from.half_w, half_w, sx);
@@ -287,18 +293,32 @@ ArtScale::~ArtScale() {
 
 bool panning() { return g_ov.on && g_ov.pan; }
 
-bool busy() { return (panning() && !g_ov.hold) || g_edge_since != 0 || g_wheel_x != 0 || g_wheel_y != 0; }
+bool busy() { return (panning() && !g_ov.hold) || g_edge_since != 0 || g_wheel_steps != 0; }
 
 void mouse(int32_t x, int32_t y) {
     g_mouse_x = x;
     g_mouse_y = y;
 }
 
-void wheel(float dx, float dy) {
-    if (!g_enabled) return;
-    // The wheel's x and y point the way the view is to go (macOS's natural scrolling included).
-    g_wheel_x += dx * kWheelScale;
-    g_wheel_y -= dy * kWheelScale;
+void wheel(float, float dy) {
+    if (g_ui_unattended && !g_unattended) return;  // scripted runs: only with --smooth
+    g_wheel_steps += wheel_zoom(&g_wheel, dy, kWheelStep, g_wheel_zoom);
+}
+
+// A zoom step by the wheel: as the Z / X keys (pfncProcZoomKey), about the pointer.
+void wheel_zoom_step(uint8_t* win, int32_t step) {
+    const double ax = g_mouse_x >= 0 ? g_mouse_x : ScreenWidth / 2.0;
+    const double ay = g_mouse_y >= 0 ? g_mouse_y : ScreenHeight / 2.0;
+    ZoomFrom from;
+    const bool smooth = zoom_capture(win, &from);
+    from.anchor_x = ax;
+    from.anchor_y = ay;
+    int32_t& zoom = map_win(win).zoom;
+    if (step > 0 && zoom < 0x10) zoom += 2;
+    else if (step < 0 && -0xE < zoom) zoom -= 2;
+    if (smooth) zoom_glide(win, from);
+    else pfncRedrawMap(win, 1);
+    GraphicWin_redraw(&WorldWin);
 }
 
 void tick() {
@@ -306,8 +326,19 @@ void tick() {
     const uint32_t now = platform::ticks_ms();
     const double dt = std::min<uint32_t>(now - g_last_tick, 50) / 1000.0;
     g_last_tick = now;
+    // The wheel's zoom steps, with the smooth view or without (then the original's redraw).
+    if (g_wheel_steps != 0) {
+        if (!win || !view_shown() || g_running || ui_presenting()) {
+            g_wheel = 0;
+            g_wheel_steps = 0;  // a window open: the scroll is not kept for later
+        } else {
+            const int32_t step = g_wheel_steps > 0 ? 1 : -1;  // one step per tick: each is animated
+            g_wheel_steps -= step;
+            wheel_zoom_step(win, step);
+            return;
+        }
+    }
     if (!allowed(win) || (!g_ov.on && !roomy(win))) {
-        g_wheel_x = g_wheel_y = 0;
         g_edge_since = 0;
         if (panning() && !g_ov.hold && g_enabled && !g_running && !ui_presenting()) {  // a window opened: back on the grid
             g_ov.on = false;
@@ -328,8 +359,7 @@ void tick() {
     } else {
         g_edge_since = 0;
     }
-    const double dx = ex * kEdgeSpeed * dt + g_wheel_x, dy = ey * kEdgeSpeed * dt + g_wheel_y;
-    g_wheel_x = g_wheel_y = 0;
+    const double dx = ex * kEdgeSpeed * dt, dy = ey * kEdgeSpeed * dt;
     if (dx != 0 || dy != 0) {
         if (!g_ov.on) {
             MapWin& m = map_win(win);

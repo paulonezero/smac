@@ -76,6 +76,26 @@ inline int32_t scaled_source(int32_t dst, double fixed, double scale, int32_t si
     return std::clamp(i, 0, size - 1);
 }
 
+// Two-finger scrolls add up to zoom steps: *acc collects the wheel's y (fractions on a trackpad)
+// and each whole `step` of it is one zoom step, returned as +1 (in) or -1 (out) per call, the
+// rest kept. direction: 1 (a scroll up zooms in), -1 (the reverse), 0 (no zoom by the wheel).
+inline int32_t wheel_zoom(double* acc, double dy, double step, int32_t direction) {
+    if (direction == 0 || step <= 0) {
+        *acc = 0;
+        return 0;
+    }
+    *acc += dy * direction;
+    if (*acc >= step) {
+        *acc -= step;
+        return 1;
+    }
+    if (*acc <= -step) {
+        *acc += step;
+        return -1;
+    }
+    return 0;
+}
+
 // The mouse against a screen edge on one axis: -1 at the low edge, 1 at the high one, else 0.
 inline int32_t edge_axis(int32_t pos, int32_t size, int32_t band) {
     if (pos < band) return -1;

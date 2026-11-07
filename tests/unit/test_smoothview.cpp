@@ -90,3 +90,22 @@ TEST_CASE("smoothview: a scaling picture") {
     CHECK(scaled_source(-500, 50, 1, 100) == 0);
     CHECK(scaled_source(5000, 50, 1, 100) == 99);
 }
+
+TEST_CASE("smoothview: the wheel's scrolls add up to zoom steps") {
+    double acc = 0;
+    // Trackpad fractions: three units make a step, the rest is kept.
+    CHECK(wheel_zoom(&acc, 1.0, 3.0, 1) == 0);
+    CHECK(wheel_zoom(&acc, 1.0, 3.0, 1) == 0);
+    CHECK(wheel_zoom(&acc, 1.5, 3.0, 1) == 1);
+    CHECK(acc == doctest::Approx(0.5));
+    // The other way, and back through zero.
+    CHECK(wheel_zoom(&acc, -3.5, 3.0, 1) == -1);
+    CHECK(acc == doctest::Approx(0.0));
+    // A wheel notch (3) is a step on its own.
+    CHECK(wheel_zoom(&acc, 3.0, 3.0, 1) == 1);
+    // Reversed and off.
+    acc = 0;
+    CHECK(wheel_zoom(&acc, 3.0, 3.0, -1) == -1);
+    CHECK(wheel_zoom(&acc, 30.0, 3.0, 0) == 0);
+    CHECK(acc == 0);
+}

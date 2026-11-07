@@ -1,9 +1,10 @@
 // Smooth movement of the main map view (OpenSMAC's own, not in the original).
 //
 // The original moves the view a whole step at a time. Here the picture travels: a move of the view
-// (pfncMoveMap) glides there, and the mouse at a screen edge or two fingers on a trackpad pan it by
-// the pixel, settling on the tile grid when they stop. The map is redrawn for every frame, so its
-// units and names stay live.
+// (pfncMoveMap) glides there, the mouse at a screen edge pans it by the pixel, settling on the tile
+// grid when it stops, and a change of zoom scales the picture about the point that stays put. Two
+// fingers on a trackpad (or a scroll wheel) zoom, about the pointer. The map is redrawn for every
+// frame, so its units and names stay live.
 //
 // The game does not see this. A glide sets the view at once, as the original, and only the picture
 // lags behind while the game waits for it. A pan runs only from the main loop, with the game
@@ -22,6 +23,9 @@ namespace smoothview {
 
 // Off: the original's moves. `unattended`: also for scripted runs without a focused window (tests).
 void set_enabled(bool on, bool unattended);
+// The wheel's zoom: 1 (a scroll up zooms in, the default), -1 (the reverse), 0 (none). It works
+// with the smooth view off too, then with the original's redraw.
+void set_wheel_zoom(int32_t direction);
 
 // pfncZoomProcessing's end: a view that is off the tile grid applies it here.
 void apply(uint8_t* win);
@@ -33,12 +37,14 @@ bool capture(uint8_t* win, Pos* from);
 void glide(uint8_t* win, Pos from, int32_t redraw);
 
 // A change of zoom of `win`: zoom_capture before it (false: the original's redraw), zoom_glide
-// after it. The map point at the screen's centre stays there, the picture scaling to the new size.
-// The original puts the view on the tile grid of the new zoom, moving that point by up to a tile
-// at each step; here the view stays off the grid until it next moves.
+// after it. The map point at the anchor (the screen's centre; the pointer for the wheel's zoom)
+// stays there, the picture scaling to the new size. The original puts the view on the tile grid
+// of the new zoom, moving that point by up to a tile at each step; here the view stays off the
+// grid until it next moves.
 struct ZoomFrom {
     Pos at;
     int32_t half_w = 0, half_h = 0, zoom = 0;
+    double anchor_x = 0, anchor_y = 0;  // screen pixels
 };
 bool zoom_capture(uint8_t* win, ZoomFrom* from);
 void zoom_glide(uint8_t* win, const ZoomFrom& from);
@@ -66,7 +72,7 @@ bool panning();
 bool busy();
 
 void mouse(int32_t x, int32_t y);  // the mouse's latest position
-void wheel(float dx, float dy);  // a scroll wheel or two fingers on a trackpad
+void wheel(float dx, float dy);  // a scroll wheel or two fingers on a trackpad: zoom steps
 void tick();  // the main loop
 
 // Test aid (VIEWCHECK): every tile in view back through pfncPtToTile. Mismatches on stderr.

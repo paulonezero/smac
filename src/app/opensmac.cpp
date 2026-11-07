@@ -35,6 +35,7 @@
 //
 // The map view. A player's game moves it smoothly (ui/smoothview.h) unless the ini's "Smooth Scroll"
 // ([Alpha Centauri] section) is 0; runs with --outdir move it as the original unless --smooth is given.
+// A two-finger scroll (the wheel) zooms about the pointer: "Scroll Zoom" 1 (up zooms in), -1, 0 (off).
 //
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
@@ -939,6 +940,9 @@ int main(int argc, char** argv) {
         char buf[16] = "";
         win32::GetPrivateProfileStringA("Alpha Centauri", "Smooth Scroll", "1", buf, sizeof(buf), ini_copy.c_str());
         smoothview::set_enabled(g_opt.smooth || (played && std::atoi(buf) != 0), g_opt.smooth);
+        // "Scroll Zoom": 1 (a two-finger scroll up zooms in), -1 (the reverse), 0 (none).
+        win32::GetPrivateProfileStringA("Alpha Centauri", "Scroll Zoom", "1", buf, sizeof(buf), ini_copy.c_str());
+        smoothview::set_wheel_zoom(std::clamp(std::atoi(buf), -1, 1));
     }
     // The harness's deterministic clock (engine/clock.h): the same keys give the same game.
     engine_set_deterministic(true);
