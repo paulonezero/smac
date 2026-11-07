@@ -1,4 +1,5 @@
 // Units on the map (see vehdraw.h).
+#include "ui/smoothview.h"
 #include "ui/vehdraw.h"
 
 #include <cstdio>
@@ -1498,5 +1499,6 @@ void THISCALL MapWin_draw_vehicles(uint8_t* win, int32_t x, int32_t y, int32_t p
                 return;
         }
     }
+    smoothview::ArtScale art(win);  // the unit scaled with the tiles (smooth view)
     veh_draw(ui_mapwin_native(win)->canvas, v, px, py, map_win(win).zoom, mode, 1);
 }

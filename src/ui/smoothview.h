@@ -43,6 +43,19 @@ struct ZoomFrom {
 bool zoom_capture(uint8_t* win, ZoomFrom* from);
 void zoom_glide(uint8_t* win, const ZoomFrom& from);
 
+// Units and bases scaled with the tiles while enabled. The tiles' sizes come in steps of eight
+// pixels (pfncZoomProcessing's q) but the sprites and their offsets scale by (zoom + 16) / 16,
+// so at each zoom a unit sits a few pixels differently on its tile: what a zoom's scaling picture
+// cannot foresee, a hop at its end. ArtScale sets the engine's fixed zoom factor (ZoomNum /
+// ZoomDenom, as the base window does) to q / 12 (q is 12 at zoom 0, the sprites' own size) for
+// the duration, when none is set. Off (or the original's moves): nothing.
+struct ArtScale {
+    explicit ArtScale(uint8_t* win);
+    ~ArtScale();
+    bool set = false;
+    int32_t num = 0, den = 0;  // the values restored
+};
+
 // True while the view is off the tile grid.
 bool panning();
 // True while a pan wants frames: the main loop should not wait long for input.

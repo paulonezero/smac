@@ -257,6 +257,21 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
     ui_invalidate();
 }
 
+ArtScale::ArtScale(uint8_t* win) {
+    if (!g_enabled || ZoomNum >= 1 || !win || map_win(win).q < 1) return;
+    num = ZoomNum;
+    den = ZoomDenom;
+    ZoomNum = map_win(win).q;
+    ZoomDenom = 12;
+    set = true;
+}
+
+ArtScale::~ArtScale() {
+    if (!set) return;
+    ZoomNum = num;
+    ZoomDenom = den;
+}
+
 bool panning() { return g_ov.on && g_ov.pan; }
 
 bool busy() { return (panning() && !g_ov.hold) || g_edge_since != 0 || g_wheel_x != 0 || g_wheel_y != 0; }

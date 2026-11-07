@@ -13,6 +13,7 @@
 #include "engine/rules.h"
 #include "engine/strings.h"
 #include "engine/score.h"
+#include "ui/smoothview.h"
 #include "ui/colortables.h"
 #include "ui/mapwin.h"
 #include "ui/sprites.h"
@@ -242,6 +243,7 @@ void THISCALL MapWin_draw_bases(uint8_t* win, int32_t x, int32_t y, int32_t px, 
             return;
     }
     if ((opts & 0x200000) && b != BaseUpkeepDrawID) return;
+    smoothview::ArtScale art(win);  // the base scaled with the tiles (smooth view)
     base_draw(ui_mapwin_native(win)->canvas, b, px, py, map_win(win).zoom, (opts >> 0x12) & 8);
 }
 
