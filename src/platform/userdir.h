@@ -32,4 +32,9 @@ Migrated migrate_dir(const std::string& old_dir, const std::string& new_dir, std
 // opensmacnet.txt) is removed.
 void migrate_files(const std::string& udir);
 
+// The saved game written last below saves_dir (a .SAV file there or in a folder of it, the
+// autosaves too), as the game names it: "saves\auto\Alpha Centauri Autosave 1.SAV". Of two
+// written at the same time the one outside "auto" (the player's own). Empty when there is none.
+std::string latest_save(const std::string& saves_dir);
+
 }  // namespace userdir

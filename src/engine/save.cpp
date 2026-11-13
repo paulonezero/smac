@@ -1063,6 +1063,15 @@ int32_t GAMEAPI save_game(int32_t scenario) {
     return 0;
 }
 
+static const char* g_load_file = nullptr;  // load_game_file's, for the load_game it runs
+
+int32_t load_game_file(const char* path) {
+    g_load_file = path;
+    int32_t result = load_game(0, 0);
+    g_load_file = nullptr;
+    return result;
+}
+
 int32_t GAMEAPI load_game(int32_t scenario, int32_t relinearize) {
     static FileDialogs d;
     char pattern[256], filter[256], path[256], base[336], old_alt[256], digits[80];
@@ -1090,7 +1099,9 @@ int32_t GAMEAPI load_game(int32_t scenario, int32_t relinearize) {
         FileList_add_ext(d.list(), pattern);
         int32_t windows_box = prefs_get_int("WindowsFileBox", 0, 0);
         prefs_put_int("WindowsFileBox", (uint32_t)windows_box, 0);
-        char* chosen = windows_box ? FileDialog_open(d.dialog) : FileBox_load(d.box);
+        static char given[256];
+        if (g_load_file) crt_strncpy(given, g_load_file, sizeof(given) - 1);
+        char* chosen = g_load_file ? given : windows_box ? FileDialog_open(d.dialog) : FileBox_load(d.box);
         do_all_draws();
         if (!chosen) {
             d.destroy();
@@ -1162,7 +1173,7 @@ int32_t GAMEAPI load_game(int32_t scenario, int32_t relinearize) {
             crt_strcat(StrBuffer, " ");
             say_year(StrBuffer);
             parse_says(4, StrBuffer, -1, -1);
-            int32_t choice = X_pops_11("LOADGAME", 0x40, FactionPortraits[CurrentPlayerFaction], 0);
+            int32_t choice = g_load_file ? 0 : X_pops_11("LOADGAME", 0x40, FactionPortraits[CurrentPlayerFaction], 0);
             do_all_draws();
             if (choice < 0) {  // not this one: back to the file box
                 FileBox_close(d.box);

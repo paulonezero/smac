@@ -152,6 +152,7 @@
 #include "engine/turn.h"
 #include "engine/ui_bridge.h"
 #include "engine/world.h"
+#include "platform/userdir.h"
 #include "platform/display.h"
 #include "platform/ui_platform.h"
 #include "platform/win32.h"
@@ -200,6 +201,8 @@ struct Options {
 
 // The ini the game reads and writes (Alt+Enter saves Fullscreen there).
 std::string g_ini_path;
+std::string g_saves_dir;        // a player's game: the saved games' folder
+bool g_load_latest = false;     // the ini's "Load Latest Save"
 
 int g_turns_done = 0;
 bool g_quit = false;
@@ -486,10 +489,18 @@ int32_t main_menu() {
     // Back from a game (Start New Game, a retired or finished game: control_game's reload) the
     // menu comes up again, as in the original.
     static bool started = false;
+    const bool first = !started;
     if (!started) apply_seed();
     started = true;
     g_ui_before_world_build = apply_seed;
-    int32_t r = top_menu(0);
+    // "Load Latest Save": the first menu of a run is the saved game written last, if it loads.
+    bool loaded = false;
+    if (first && g_load_latest) {
+        const std::string save = userdir::latest_save(g_saves_dir);
+        std::fprintf(stderr, "opensmac: latest save: %s\n", save.empty() ? "none" : save.c_str());
+        if (!save.empty()) loaded = top_menu_continue(save.c_str());
+    }
+    int32_t r = loaded ? ControlTurnA : top_menu(0);
     g_ui_before_world_build = nullptr;
     if (r) return r;
     // The game's human player (none: an observer game).
@@ -953,7 +964,8 @@ int main(int argc, char** argv) {
         } else {
             ini_copy = fs::absolute(g_opt.ini).string();
         }
-        platform::set_saves_dir((fs::path(udir) / "saves").string().c_str());
+        g_saves_dir = (fs::path(udir) / "saves").string();
+        platform::set_saves_dir(g_saves_dir.c_str());
     }
     if (!mem::init(fs::absolute(g_opt.image).string().c_str())) {
         std::fprintf(stderr, "cannot load data image %s\n", g_opt.image.c_str());
@@ -1035,6 +1047,9 @@ int main(int argc, char** argv) {
             modern::set_enabled(g_opt.modern || (all && ini_int("Selection Ring", 1, 0, 1) != 0),
                                 g_opt.modern || (all && ini_int("Smooth Unit Moves", 1, 0, 1) != 0));
         }
+        // "Load Latest Save" (default 1): a start goes straight into the saved game written last
+        // (an autosave too) in place of the main menu, which comes up when there is none.
+        g_load_latest = played && ini_int("Load Latest Save", 1, 0, 1) != 0;
         // "Show FPS" (default 0): the frames presented in the last second, at the top right.
         platform::fps_show(played && ini_int("Show FPS", 0, 0, 1) != 0);
 #ifdef __SWITCH__

@@ -1,6 +1,7 @@
 // The per-user directory of a copy from before the rename to OpenSMAC (userdir.h).
 #include "platform/userdir.h"
 
+#include <cctype>
 #include <filesystem>
 #include <system_error>
 
@@ -57,6 +58,35 @@ void migrate_files(const std::string& udir) {
         if (ec) fs::copy_file(legacy, cfg, ec);
     }
     fs::remove(dir / "smacxnet.txt", ec);
+}
+
+std::string latest_save(const std::string& saves_dir) {
+    std::error_code ec;
+    fs::path best;
+    fs::file_time_type best_time{};
+    bool best_auto = false;
+    for (fs::recursive_directory_iterator it(saves_dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::string ext = it->path().extension().string();
+        for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+        std::error_code fe;
+        if (ext != ".sav" || !it->is_regular_file(fe)) continue;
+        const fs::file_time_type time = it->last_write_time(fe);
+        if (fe) continue;
+        const fs::path rel = it->path().lexically_relative(saves_dir);
+        std::string top = rel.has_parent_path() ? rel.begin()->string() : std::string();
+        for (char& c : top) c = (char)std::tolower((unsigned char)c);
+        const bool is_auto = top == "auto";
+        // (the same time and kind: the first by name, whatever the directory's order)
+        if (!best.empty() && (time < best_time || (time == best_time && (is_auto > best_auto || (is_auto == best_auto && rel > best)))))
+            continue;
+        best = rel;
+        best_time = time;
+        best_auto = is_auto;
+    }
+    if (best.empty()) return {};
+    std::string name = "saves";
+    for (const fs::path& part : best) name += "\\" + part.string();
+    return name;
 }
 
 }  // namespace userdir

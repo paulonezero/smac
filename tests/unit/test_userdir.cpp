@@ -1,5 +1,6 @@
 // The per-user directory of a copy from before the rename to OpenSMAC (platform/userdir.h): moved
 // to the new one with its files, smacx.cfg renamed, and nothing touched when there is nothing to do.
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -92,4 +93,29 @@ TEST_CASE("userdir: no old directory") {
     CHECK(!fs::exists(old_dir));
     userdir::migrate_files(new_dir);
     CHECK(fs::is_empty(new_dir));
+}
+
+// "Load Latest Save": the file written last, in the game's own naming.
+TEST_CASE("userdir: the latest save") {
+    TempRoot root("userdir_latest");
+    const fs::path saves = root.path / "saves";
+    CHECK(userdir::latest_save(saves.string()).empty());  // no folder
+    fs::create_directories(saves / "auto");
+    CHECK(userdir::latest_save(saves.string()).empty());  // no saved game
+    const fs::file_time_type t = fs::file_time_type::clock::now();
+    auto save = [&](const char* name, int age_s) {
+        write(saves / name, "x");
+        fs::last_write_time(saves / name, t - std::chrono::seconds(age_s));
+    };
+    save("old.SAV", 300);
+    save("notes.txt", 0);  // not a saved game
+    save("auto/Scenario Editor Undo 1", 0);
+    CHECK(userdir::latest_save(saves.string()) == "saves\\old.SAV");
+    save("auto/Alpha Centauri Autosave 2.SAV", 200);
+    save("auto/Alpha Centauri Autosave 1.SAV", 100);
+    CHECK(userdir::latest_save(saves.string()) == "saves\\auto\\Alpha Centauri Autosave 1.SAV");
+    save("mine.sav", 100);  // the same time as the autosave: the player's own
+    CHECK(userdir::latest_save(saves.string()) == "saves\\mine.sav");
+    save("auto/Alpha Centauri Autosave 1.SAV", 50);
+    CHECK(userdir::latest_save(saves.string()) == "saves\\auto\\Alpha Centauri Autosave 1.SAV");
 }

@@ -403,6 +403,25 @@ static void clear_all_player_messages() {
 
 // ---- top_menu (0x58E360) ----
 
+bool top_menu_continue(const char* path) {
+    PbemActive = 0;
+    clear_all_player_messages();
+    prefs_load(0);
+    prefs_use();
+    NetUpkeepState = 0;
+    change_opening(opening_pcx());  // the picture while the game loads, and behind a message
+    if (load_game_file(path)) return false;
+    ControlTurnMove = CurrentPlayerFaction;  // top_menu's LOAD GAME from here
+    if (GameAltPathChanged) {
+        stop_timers();
+        labels_shutdown();
+        Strings_shutdown(&StringTable);
+        if (!game_init(1, 0)) GameNotStarted = 0;
+    }
+    close_opening();
+    return true;
+}
+
 int32_t GAMEAPI top_menu(int32_t hotseat) {
     BasePop* pop = popup_new();
     if (!hotseat) {

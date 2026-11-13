@@ -96,6 +96,9 @@ ADDR_NATIVE(0x5A9EB0) int32_t GAMEAPI save_game(int32_t scenario);
 // "Load game" (scenario != 0: load scenario) dialog and load_daemon(path, relinearize). Returns
 // load_daemon's result, 1 when cancelled, 5 when the game is in progress on another seat.
 ADDR_NATIVE(0x5AAAB0) int32_t GAMEAPI load_game(int32_t scenario, int32_t relinearize);
+// OpenSMAC: load_game for the saved game `path` ("saves\\..."), without the file box and without
+// the LOADGAME question. A file that does not load shows load_game's message.
+int32_t load_game_file(const char* path);
 // "Load map" dialog and load_map_daemon. Returns its result, 1 when cancelled.
 ADDR_NATIVE(0x5AB600) int32_t GAMEAPI load_map();
 // Scenario editor "save map" dialog and save_map_daemon.

@@ -34,6 +34,10 @@ ADDR_NATIVE(0x589180) void GAMEAPI planetfall(int32_t faction_id);
 ADDR_NATIVE(0x5898A0) void GAMEAPI thumb_routine(int32_t faction_id);
 // The desktop's picture (TopMenuWin; created on first use).
 ADDR_NATIVE(0x589A30) int32_t GAMEAPI change_opening(const char* pcx);
+// OpenSMAC: the main menu's LOAD GAME for the saved game `path`, without the menu, the file box
+// and the question (the ini's "Load Latest Save"). True: the game is loaded and starts, as after
+// top_menu's 0. False: it did not load, and the main menu is to come up.
+bool top_menu_continue(const char* path);
 
 // ---- SetupWin (ui 0x4AD880..): the menu column of the opening screens ----
 // SetupWin_do_menu_2: the items, caption and initial selection of the started popup `pop`; returns
