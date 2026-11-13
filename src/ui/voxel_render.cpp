@@ -5,6 +5,11 @@
 //
 // FP: every float step follows the original's x87 sequence (ui/x87.h); comments mark where a
 // value stays in a register (double) and where the original stores it as float.
+#include <SDL.h>
+#include <cstdlib>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -933,6 +938,238 @@ int32_t THISCALL Scene_render(VoxelScene* self, Buffer* dest, int32_t x, int32_t
         if (!dbl) blit_key(&g_color, dest, 9, x - 0x80, y - 0x80);
         Scene_clear(self, flags & 1);
     }
+    return 0;
+}
+
+// ---- Not original: a unit's rendered canvases kept by what they were rendered from ----
+// The map draws every unit in view at every redraw, and a model's voxels cost far more than
+// anything else in it. A render whose inputs are the same bytes as an earlier one gives the same
+// canvases, so they are kept (the pixels that are not the key, within their bounds) and blitted.
+// OPENSMAC_VOXCACHE=0 turns it off; OPENSMAC_VOXCHECK=1 renders on a hit as well and reports a
+// difference.
+namespace {
+struct Kept {
+    int32_t cx = 0, cy = 0, cw = 0, ch = 0;  // the model's bounds in the canvas
+    int32_t sx = 0, sy = 0, sw = 0, sh = 0;  // the shadow's
+    std::vector<uint8_t> color, shadow;
+};
+std::unordered_map<std::string, Kept> g_kept;
+size_t g_kept_bytes = 0;
+constexpr size_t kKeptMax = 24u << 20;
+
+uint64_t digest(const uint8_t* p, size_t n) {  // n a multiple of 8
+    uint64_t h = 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0; i < n; i += 8) {
+        uint64_t w;
+        std::memcpy(&w, p + i, 8);
+        h = (h ^ w) * 0xFF51AFD7ED558CCDull;
+        h ^= h >> 29;
+    }
+    return h;
+}
+
+// Everything vx_render reads of the scene and the renderer.
+bool render_key(const VoxelScene* sc, uint32_t flags, std::string* out) {
+    if (sc->flags & (8 | 0x20) || sc->count <= 0 || sc->count > 200) return false;
+    std::string& k = *out;
+    k.clear();
+    auto put = [&](const void* p, size_t n) { k.append(static_cast<const char*>(p), n); };
+#define PUT(f) put(&(f), sizeof(f))
+    const uint32_t head[5] = {sc->flags, flags & 2, (uint32_t)sc->count, g_r.flags,
+                              (uint32_t)g_r.shadow_value | (g_compat.voxel_y_axis_elements ? 0x100u : 0u)};
+    PUT(head);
+    PUT(sc->v_pos); PUT(sc->v_mat); PUT(sc->v_scale); PUT(sc->v_light); PUT(sc->v_shadow); PUT(sc->v_shadow_z);
+    PUT(sc->v_offset); PUT(sc->v_shift); PUT(sc->v_zoom); PUT(sc->v_shadow_shift); PUT(sc->v_shadow_zoom);
+    PUT(sc->c_pos); PUT(sc->c_mat); PUT(sc->c_scale); PUT(sc->c_persp); PUT(sc->c_near); PUT(sc->c_far);
+    PUT(sc->c_zmin); PUT(sc->c_zmax);
+#undef PUT
+    for (int32_t i = 0; i < sc->count; i++) {
+        const VoxelObject& o = sc->objects[i];
+        // (No table: the render takes the one left by the object before it.)
+        if (!o.flag || !o.pos || !o.mat || !sc->colors[i]) return false;
+        put(&sc->meshes[i].data, sizeof(void*));
+        put(o.flag, 1);
+        put(o.pos, 12);
+        put(o.mat, 36);
+        const uint64_t d = digest(sc->colors[i], 0x1800);
+        put(&d, 8);
+    }
+    return true;
+}
+
+// The bounds of the bytes that are not `key` in a 256 x 256 canvas; false when there are none.
+bool canvas_bounds(const uint8_t* data, uint8_t key, int32_t* x, int32_t* y, int32_t* w, int32_t* h) {
+    uint64_t all;
+    std::memset(&all, key, 8);
+    int32_t x0 = 256, x1 = -1, y0 = 256, y1 = -1;
+    for (int32_t r = 0; r < 256; r++) {
+        const uint8_t* row = data + r * 0x100;
+        bool any = false;
+        for (int32_t c = 0; c < 256; c += 8) {
+            uint64_t v;
+            std::memcpy(&v, row + c, 8);
+            if (v == all) continue;
+            any = true;
+            for (int32_t i = c; i < c + 8; i++)
+                if (row[i] != key) {
+                    x0 = std::min(x0, i);
+                    x1 = std::max(x1, i);
+                }
+        }
+        if (any) {
+            y0 = std::min(y0, r);
+            y1 = r;
+        }
+    }
+    if (x1 < 0) return false;
+    *x = x0, *y = y0, *w = x1 - x0 + 1, *h = y1 - y0 + 1;
+    return true;
+}
+
+Kept keep_canvases() {
+    Kept e;
+    if (canvas_bounds(g_color.data, 9, &e.cx, &e.cy, &e.cw, &e.ch)) {
+        e.color.resize((size_t)e.cw * e.ch);
+        for (int32_t r = 0; r < e.ch; r++)
+            std::memcpy(&e.color[(size_t)r * e.cw], g_color.data + (e.cy + r) * 0x100 + e.cx, (size_t)e.cw);
+    }
+    if (canvas_bounds(g_shadow.data, 0, &e.sx, &e.sy, &e.sw, &e.sh)) {
+        e.shadow.resize((size_t)e.sw * e.sh);
+        for (int32_t r = 0; r < e.sh; r++)
+            std::memcpy(&e.shadow[(size_t)r * e.sw], g_shadow.data + (e.sy + r) * 0x100 + e.sx, (size_t)e.sw);
+    }
+    return e;
+}
+
+bool same(const Kept& a, const Kept& b) {
+    return a.cx == b.cx && a.cy == b.cy && a.cw == b.cw && a.ch == b.ch && a.sx == b.sx && a.sy == b.sy &&
+           a.sw == b.sw && a.sh == b.sh && a.color == b.color && a.shadow == b.shadow;
+}
+}  // namespace
+
+namespace {
+// OPENSMAC_FRAMELOG: what the store did, every two seconds it was used in.
+struct KeptStats {
+    int32_t hits = 0, misses = 0, unkept = 0, clears = 0;
+    double slowest = 0, spent = 0;  // ms
+    uint32_t said = 0;
+} g_stats;
+void stats_note(int32_t* counter, uint64_t t0) {
+    static const bool on = std::getenv("OPENSMAC_FRAMELOG") != nullptr;
+    if (!on) return;
+    ++*counter;
+    const double ms = (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+    g_stats.spent += ms;
+    g_stats.slowest = std::max(g_stats.slowest, ms);
+    const uint32_t now = SDL_GetTicks();
+    if (now - g_stats.said < 2000) return;
+    std::fprintf(stderr, "unit renders: %d kept ones used, %d made and kept, %d not kept, %d times emptied; %.1f ms in all, slowest %.1f; %zu kept in %zu KB\n",
+                 g_stats.hits, g_stats.misses, g_stats.unkept, g_stats.clears, g_stats.spent, g_stats.slowest,
+                 g_kept.size(), g_kept_bytes / 1024);
+    g_stats = KeptStats{};
+    g_stats.said = now;
+}
+}  // namespace
+
+void voxel_cache_clear() {
+    g_kept.clear();
+    g_kept_bytes = 0;
+    g_stats.clears++;
+}
+
+int32_t THISCALL Scene_render_unit(VoxelScene* self, Buffer* dest, int32_t x, int32_t y, uint32_t flags) {
+    static const bool off = [] {
+        const char* e = std::getenv("OPENSMAC_VOXCACHE");
+        return e && e[0] == '0';
+    }();
+    static const bool check = std::getenv("OPENSMAC_VOXCHECK") != nullptr;
+    static std::string key;
+    // The canvas' part inside dest's clip, as Scene_render gives it to the renderer: part of what
+    // the render is made from. A clipped render is kept from its second time on: a pane shows its
+    // unit at the same place frame after frame, while a unit at the edge of a moving view is
+    // clipped differently in each and would only fill the store.
+    UiRect rc{0, 0, 0, 0};
+    if (dest) {
+        rc = rect_intersect(UiRect{x - 0x80, y - 0x80, x + 0x80, y + 0x80}, dest->clip);
+        rc.left += 0x80 - x, rc.right += 0x80 - x, rc.top += 0x80 - y, rc.bottom += 0x80 - y;
+    }
+    const bool whole = rc.left == 0 && rc.top == 0 && rc.right == 0x100 && rc.bottom == 0x100;
+    bool keyed = !off && g_ready && dest && !rect_empty(rc) && (self->flags & 1) && render_key(self, flags, &key);
+    if (keyed) {
+        key.append(reinterpret_cast<const char*>(&rc), sizeof(rc));
+        if (!whole && g_kept.find(key) == g_kept.end()) {
+            static std::unordered_set<size_t> seen;
+            if (seen.size() > 4096) seen.clear();
+            keyed = !seen.insert(std::hash<std::string>()(key)).second;
+        }
+    }
+    const uint64_t t_begin = SDL_GetPerformanceCounter();
+    if (!keyed) {
+        const int32_t r = Scene_render(self, dest, x, y, flags);
+        Scene_clear(self, 0);
+        stats_note(&g_stats.unkept, t_begin);
+        return r;
+    }
+    const bool shadows = !(flags & 2);
+    auto it = g_kept.find(key);
+    if (it != g_kept.end() && check) {
+        // The render again, into canvases of its own picture: it must be the one kept.
+        Buffer none;
+        Buffer_ctor(&none);
+        Buffer_init(&none, 0x100, 0x100, 0, 0);
+        none.clip = rc;
+        VoxelScene copy = *self;
+        Scene_render(&copy, &none, 0x80, 0x80, flags | 8);
+        Kept now = keep_canvases();
+        if (!shadows) now.shadow.clear(), now.sx = now.sy = now.sw = now.sh = 0;
+        Scene_clear(&copy, 0);
+        static int32_t checked = 0, differ = 0;
+        if (!same(now, it->second)) differ++;
+        if (++checked % 100 == 0 || differ == 1)
+            std::fprintf(stderr, "voxel cache: %d kept renders checked, %d differ (%zu kept)\n", checked, differ, g_kept.size());
+    }
+    if (it == g_kept.end()) {
+        // As Scene_render and the Scene_clear after it: the shadow through its table, the canvases
+        // kept, the model, the canvases cleared.
+        const int32_t r = Scene_render(self, dest, x, y, flags | 8);
+        if (r != 0) return r;
+        Kept e = keep_canvases();
+        if (!shadows) e.shadow.clear(), e.sx = e.sy = e.sw = e.sh = 0;
+        blit_key(&g_color, dest, 9, x - 0x80, y - 0x80);
+        Scene_clear(self, 0);
+        const size_t bytes = key.size() + e.color.size() + e.shadow.size() + 128;
+        if (g_kept_bytes + bytes > kKeptMax) voxel_cache_clear();
+        g_kept_bytes += bytes;
+        g_kept.emplace(key, std::move(e));
+        stats_note(&g_stats.misses, t_begin);
+        return 0;
+    }
+    // What Scene_render leaves in the scene.
+    self->v_count = self->count;
+    self->c_clip[0] = self->c_clip[1] = 0;
+    self->c_clip[2] = self->c_clip[3] = 0xFF;
+    self->c_clip[4] = self->c_clip[5] = 0x100;
+    self->dest = dest;
+    self->v_frame = 1;
+    self->v_shadows = shadows ? 1 : 0;
+    // The blits of Scene_render (blit_table, blit_key), clipped to dest's clip as they are.
+    const Kept& e = it->second;
+    const int32_t bx = x - 0x80, by = y - 0x80;
+    const UiRect sr = rect_intersect(UiRect{bx + e.sx, by + e.sy, bx + e.sx + e.sw, by + e.sy + e.sh}, dest->clip);
+    for (int32_t py = sr.top; py < sr.bottom && sr.left < sr.right; py++) {
+        const uint8_t* sp = &e.shadow[(size_t)(py - by - e.sy) * e.sw + (sr.left - bx - e.sx)];
+        uint8_t* d = dest->data + py * dest->stride + sr.left;
+        for (int32_t c = 0; c < sr.right - sr.left; c++)
+            if (sp[c] != 0) d[c] = g_r.shadow_table[d[c]];
+    }
+    const UiRect cr = rect_intersect(UiRect{bx + e.cx, by + e.cy, bx + e.cx + e.cw, by + e.cy + e.ch}, dest->clip);
+    for (int32_t py = cr.top; py < cr.bottom && cr.left < cr.right; py++) {
+        const uint8_t* sp = &e.color[(size_t)(py - by - e.cy) * e.cw + (cr.left - bx - e.cx)];
+        uint8_t* d = dest->data + py * dest->stride + cr.left;
+        for (int32_t c = 0; c < cr.right - cr.left; c++)
+            if (sp[c] != 9) d[c] = sp[c];
+    }
+    stats_note(&g_stats.hits, t_begin);
     return 0;
 }
 

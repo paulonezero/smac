@@ -1,6 +1,7 @@
 // Smooth movement of the main map view (see smoothview.h).
 #include "ui/smoothview.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,6 +14,7 @@
 #include "ui/basewin.h"
 #include "ui/console.h"
 #include "ui/mapwin.h"
+#include "ui/modern.h"
 #include "ui/reports.h"
 #include "ui/win.h"
 
@@ -22,7 +24,7 @@ namespace smoothview {
 namespace {
 
 constexpr int32_t kFrameMs = 16;
-constexpr int32_t kSettleMs = 140;  // no pan input for this long: back onto the grid
+constexpr int32_t kSettleMs = 140;  // no pan input for this long: the pan is over
 constexpr double kWheelStep = 3.0;  // the wheel's units (a notch; fractions on a trackpad) per zoom step
 constexpr int32_t kConsoleWidth = 1024;  // the console at the bottom of the screen, centred
 
@@ -35,7 +37,7 @@ bool g_zoom_details = false;  // set_zoom_details
 // picture is only drawn there, the view being at the target already).
 struct Override {
     bool on = false, pan = false;
-    bool hold = false;  // kept at rest, after a zoom: it does not settle
+    bool hold = false;  // at rest between tiles, after a zoom or a pan
     bool synced = false;  // cx, cy are the centre it set
     Pos at;
     int32_t zoom = 0, cx = 0, cy = 0;
@@ -43,9 +45,11 @@ struct Override {
 std::vector<uint8_t> g_picture;  // the picture a zoom scales
 
 bool g_running = false;  // a glide is in progress
+bool g_scaling = false;  // a zoom is scaling its picture
 bool g_edge = false;  // the pointer at a screen edge is scrolling
 int32_t g_mouse_x = -1, g_mouse_y = -1;
 double g_wheel = 0;  // the wheel's scroll not yet a zoom step
+double g_pad_x = 0, g_pad_y = 0;  // pad_pan: tiles a second
 int32_t g_wheel_zoom = 1;  // set_wheel_zoom
 int32_t g_wheel_steps = 0;  // zoom steps asked for, done by tick
 uint32_t g_last_tick = 0, g_last_input = 0;
@@ -86,16 +90,32 @@ void draw(uint8_t* win) {
     ui_map_clean();
 }
 
+// OPENSMAC_FRAMELOG=1: what a glide's frames cost (ms), reported at its end.
+struct Cost {
+    double draw = 0, worst = 0, present = 0;  // the map's redraw (sum, longest), the present (sum)
+} g_cost;
+bool cost_log() {  // read when first asked: the Switch sets its environment in main
+    static const bool on = std::getenv("OPENSMAC_FRAMELOG") != nullptr;
+    return on;
+}
+
 // The picture at `at`, the view staying as it is.
 void frame(uint8_t* win, Pos at) {
     g_ov = Override{};
     g_ov.on = true;
     g_ov.at = at;
     g_ov.zoom = map_win(win).zoom;
+    const auto t0 = std::chrono::steady_clock::now();
     draw(win);
+    const auto t1 = std::chrono::steady_clock::now();
     g_ov.on = false;
     pfncZoomProcessing(win);
     ui_present();
+    const auto t2 = std::chrono::steady_clock::now();
+    const double d = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    g_cost.draw += d;
+    g_cost.worst = std::max(g_cost.worst, d);
+    g_cost.present += std::chrono::duration<double, std::milli>(t2 - t1).count();
 }
 
 }  // namespace
@@ -190,6 +210,7 @@ void glide(uint8_t* win, Pos from, int32_t redraw) {
         const int32_t ms = glide_ms(dist, screen);
         const uint32_t t0 = platform::ticks_ms();
         int32_t frames = 0;
+        g_cost = Cost{};
         for (;;) {
             const uint32_t begun = platform::ticks_ms();
             const int32_t done = (int32_t)(begun - t0);
@@ -202,6 +223,10 @@ void glide(uint8_t* win, Pos from, int32_t redraw) {
         }
         g_running = false;
         if (g_unattended) std::fprintf(stderr, "view glide: %d frames in %d ms\n", frames, ms);
+        if (cost_log() && frames > 0) {
+            std::fprintf(stderr, "glide cost: %d frames in %d ms; redraw %.1f ms a frame (longest %.1f), present %.1f\n",
+                         frames, ms, g_cost.draw / frames, g_cost.worst, g_cost.present / frames);
+        }
     }
     map_win(win).scrolling = 0;
     pfncRedrawMap(win, redraw);
@@ -218,6 +243,7 @@ bool zoom_capture(uint8_t* win, ZoomFrom* from) {
     from->zoom = map_win(win).zoom;
     from->anchor_x = ScreenWidth / 2.0;
     from->anchor_y = ScreenHeight / 2.0;
+    modern::ring_draw(n->canvas, n->canvas->width, n->canvas->height);  // the selected unit into the picture
     g_picture.assign(n->canvas->data, n->canvas->data + (size_t)n->canvas->stride * n->canvas->height);
     return true;
 }
@@ -256,6 +282,7 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
     double bx = scale * from.at.x - to.x, by = scale * from.at.y - to.y;
     if (!growing) {  // the new picture, shrinking from the old one's size
         draw(win);
+        modern::ring_draw(canvas, canvas->width, canvas->height);
         g_picture.assign(canvas->data, canvas->data + (size_t)canvas->stride * canvas->height);
     }
     const int32_t w = canvas->width, h = canvas->height;
@@ -265,7 +292,7 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
     const double fx = still ? 0 : bx / (1 - scale), fy = still ? 0 : by / (1 - scale);
     const int32_t ms = 130;
     if (same_size) {
-        g_running = true;
+        g_running = g_scaling = true;
         const uint32_t t0 = platform::ticks_ms();
         std::vector<int32_t> cols((size_t)w);
         int32_t frames = 0;
@@ -288,7 +315,7 @@ void zoom_glide(uint8_t* win, const ZoomFrom& from) {
             const int32_t spent = (int32_t)(platform::ticks_ms() - begun);
             if (spent < kFrameMs) platform::delay_ms((uint32_t)(kFrameMs - spent));
         }
-        g_running = false;
+        g_running = g_scaling = false;
         if (g_unattended) std::fprintf(stderr, "view zoom: %d frames, scale %.3f\n", frames, scale);
     }
     draw(win);
@@ -326,6 +353,17 @@ ArtScale::~ArtScale() {
 bool panning() { return g_ov.on && g_ov.pan; }
 
 bool busy() { return (panning() && !g_ov.hold) || g_edge || g_wheel_steps != 0; }
+
+bool map_shown() { return view_shown(); }
+
+bool moving() { return g_running || busy(); }
+
+bool scaling() { return g_scaling; }
+
+void pad_pan(double x, double y) {
+    g_pad_x = x;
+    g_pad_y = y;
+}
 
 void mouse(int32_t x, int32_t y) {
     g_mouse_x = x;
@@ -396,7 +434,22 @@ void tick() {
             ry = 0;
         }
     }
+    rx += g_pad_x;  // a controller's stick (pad_pan)
+    ry += g_pad_y;
     const double dx = rx * map_win(win).tile_w * dt, dy = ry * map_win(win).tile_h * dt;
+    if (cost_log()) {  // OPENSMAC_FRAMELOG: the pan's state, once a second
+        static uint32_t said = 0;
+        static int32_t ticks = 0, moving_ticks = 0;
+        ticks++;
+        if (dx != 0 || dy != 0) moving_ticks++;
+        if (now - said >= 1000) {
+            std::fprintf(stderr, "pan: stick %.2f %.2f, %d of %d ticks moving, at %.0f %.0f (y %.0f..%.0f), zoom %d\n",
+                         g_pad_x, g_pad_y, moving_ticks, ticks, g_ov.at.x, g_ov.at.y, g_min_y, g_max_y,
+                         map_win(win).zoom);
+            said = now;
+            ticks = moving_ticks = 0;
+        }
+    }
     if (dx != 0 || dy != 0) {
         g_edge = true;
         if (!g_ov.on) {
@@ -421,9 +474,11 @@ void tick() {
         return;
     }
     if (panning() && !g_ov.hold && now - g_last_input >= kSettleMs) {
-        const Pos from = g_ov.at;
-        g_ov.on = false;
-        glide(win, from, 1);
+        // The pan rests where it is, between tiles, as the view does after a zoom. (It used to
+        // glide onto the grid point behind it: the picture went back by up to a tile when the
+        // stick was let go.)
+        g_ov.hold = true;
+        ui_invalidate();  // the console, kept while the view moved, is drawn again
     }
 }
 

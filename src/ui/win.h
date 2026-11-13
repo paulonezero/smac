@@ -28,6 +28,16 @@ Buffer* ui_screen_canvas();
 // The map view must be redrawn (draw_map, draw_tile, ...) / the screen must be presented again.
 void ui_invalidate_map();
 void ui_invalidate();
+// The frames of a moving view (ui/smoothview.h) held for `refreshes` of the display each (2: 30 a
+// second), so they are evenly spaced; 0 (the default): shown as they are drawn.
+void ui_set_pace(int32_t refreshes);
+int32_t ui_pace();
+// A run of frames that follow each other begins or ends (a unit's modern move): they are held for
+// the display and keep the console's picture. ui_animating: such a frame is being drawn.
+void ui_anim(bool on);
+bool ui_animating();
+// The selection ring wants a frame of its own (nothing else changed).
+void ui_invalidate_ring();
 // The online game's notes ("net: ..." lines on stderr; WAITFOR:TEXT in a script waits for one).
 void ui_net_note(const std::string& text);
 // A hook run by ui_wait_input while it waits (the network setup window); true stops the wait.
@@ -60,6 +70,7 @@ bool ui_screenshot(const std::string& path);
 // windows over black, without the map view and the console (topmenu.cpp).
 void ui_set_desktop(bool on);
 bool ui_desktop();
+bool ui_modal_active();  // a popup, screen or menu is taking the input (not the map's own loop)
 bool ui_presenting();  // ui_present is composing the screen
 void ui_map_clean();  // the view's canvas is up to date: no redraw owed
 // Palette layers: under GDI each of the original's windows shows through its own DIB colour table
@@ -84,6 +95,9 @@ struct ScriptedKey {
     std::string command;  // "shot FILE", "save FILE", "quit"
 };
 void ui_script_keys(const std::vector<ScriptedKey>& keys);
+// More scripted keys, after those waiting. May be called from another thread while the game runs
+// (the Switch's development loop); they do not end a run that exits when its script is done.
+void ui_script_keys_add(const std::vector<ScriptedKey>& keys);
 // OPENSMAC_TRACE=1: logs the random generators and the logic clock (determinism checks).
 void ui_trace(const char* what);
 // Called when the scripted keys run out with nothing left to do (no display): the game quits.

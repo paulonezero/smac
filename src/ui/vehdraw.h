@@ -52,6 +52,13 @@ ADDR_NATIVE(0x4BF8D0) int32_t GAMEAPI vehdraw_turn_start(int32_t veh_id, int32_t
 ADDR_NATIVE(0x4BFC70) void GAMEAPI vehdraw_turn(Buffer* dest, int32_t px, int32_t py, int32_t frame, int32_t zoom);
 ADDR_NATIVE(0x4BFE00) void GAMEAPI vehdraw_scoot_start(int32_t veh_id, int32_t dir, int32_t frames, uint32_t flags);
 ADDR_NATIVE(0x4C0F50) void GAMEAPI vehdraw_scoot(Buffer* dest, int32_t px, int32_t py, int32_t frame, int32_t zoom);
+// Not original (modern.h). While `on`, vehdraw_scoot draws a modern move's frame instead of a
+// numbered one: the unit `t` (0..1) of the way through the slide vehdraw_scoot_start prepared (its
+// tilt), turned `eighths` of a turn on from the facing `from`, its animated parts at `anim_frame`.
+void vehdraw_move_frame(bool on, double t, int32_t from, double eighths, int32_t anim_frame);
+// The unit the original blinks: the selected one while the player is asked for its orders (-1:
+// none, or it is being moved).
+int32_t vehdraw_waiting_unit();
 
 struct VoxelScene;
 // The unit models (*.cvr) and the renderer (load_fixed_sprites); before colortables_init.

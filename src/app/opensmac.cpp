@@ -41,6 +41,8 @@
 // in a player's game; runs with --outdir use the original's steps unless --zoom-levels N is given.
 // "Zoom Details" (default 1; --zoom-details in a run with --outdir): the map's details drawn when
 // zoomed out too, as PRACX.
+// The modern unit animations (ui/modern.h): the selection ring ("Selection Ring") and the eased unit
+// moves ("Smooth Unit Moves"), both off with "Modern Animations" 0; runs with --outdir only with --modern.
 //
 // The reconstructed engine runs as in the original: control_game boots, the main menu (top_menu,
 // src/ui/topmenu.cpp: the opening screens, the game setup dialogs, LOAD GAME's FileBox) sets up or
@@ -62,7 +64,9 @@
 //
 // --keys: scripted input, consumed before real input. Tokens: a character (b, B = shift+b, ., [ ...),
 // LEFT RIGHT UP DOWN HOME END PGUP PGDN ENTER SPACE TAB BACK ESC PAUSE F1..F12, KP1..KP9 (keypad),
-// C-x (ctrl), S-x (shift), CLICK:XxY (a left click in a popup; S-CLICK:XxY with shift held), RCLICK:XxY (a right click; S-RCLICK /
+// C-x (ctrl), S-x (shift), PAD:NAME[:down|:up] (a controller's button: A B X Y LS RS L R ZL ZR PLUS MINUS LEFT UP
+// RIGHT DOWN) and STICK:L|R:X:Y (a stick held at X,Y, -1..1, y down; follow both with a WAIT so that they are read),
+// CLICK:XxY (a left click in a popup; S-CLICK:XxY with shift held), RCLICK:XxY (a right click; S-RCLICK /
 // C-RCLICK with shift / ctrl held: the map's right-click menu), PRESS:XxY / RELEASE:XxY (the left
 // button pressed / released there: a hold, as a scroll bar's thumb dragged by MOVE:XxY), NETMSG:LABEL (a network game's NetMsg box), MESSAGE:TEXT (a message added to the
 // info pane's message list),
@@ -129,6 +133,9 @@
 #include <vector>
 
 #include "app/gamedata.h"
+#ifdef OPENSMAC_SWITCH_DEV
+#include "app/switch_dev.h"
+#endif
 #include "engine/clock.h"
 #include "engine/compat.h"
 #include "engine/game.h"
@@ -149,6 +156,7 @@
 #include "platform/ui_platform.h"
 #include "platform/win32.h"
 #include "thinker/thinker.h"
+#include "ui/modern.h"
 #include "ui/smoothview.h"
 #include "ui/console.h"
 #include "ui/diplowin.h"
@@ -171,6 +179,7 @@ struct Options {
     std::string mods;  // --mods DIR ("none": no mods folder)
     bool mods_given = false;
     bool smooth = false;  // --smooth: the smooth map view in a test run
+    bool modern = false;  // --modern: the modern unit animations in a test run
     int zoom_levels = 0;  // --zoom-levels N: the zoom levels in a test run
     bool zoom_details = false;  // --zoom-details: details when zoomed out in a test run
     std::vector<std::string> thinker;  // --thinker KEY=VALUE: Thinker's options in a test run
@@ -539,6 +548,28 @@ int32_t start_game_menu() {
 bool parse_key(std::string tok, ScriptedKey* out) {
     out->vk = 0;
     out->command.clear();
+    if (tok.rfind("PAD:", 0) == 0) {  // PAD:NAME[:down|:up], a controller's button (ui/padmap.h)
+        static const char* const names[] = {"A", "B", "X", "Y", "LS", "RS", "L", "R", "ZL", "ZR", "PLUS", "MINUS",
+                                            "LEFT", "UP", "RIGHT", "DOWN"};
+        std::string name = tok.substr(4), how;
+        if (size_t c = name.find(':'); c != std::string::npos) {
+            how = name.substr(c + 1);
+            name = name.substr(0, c);
+        }
+        for (int i = 0; i < 16; i++)
+            if (name == names[i] && (how.empty() || how == "down" || how == "up")) {
+                out->command = "pad " + std::to_string(i) + " " + (how == "down" ? "1" : how == "up" ? "2" : "0");
+                return true;
+            }
+        return false;
+    }
+    if (tok.rfind("STICK:", 0) == 0) {  // STICK:L|R:X:Y, a stick held there (-1..1, y down)
+        char side = 0;
+        float x = 0, y = 0;
+        if (std::sscanf(tok.c_str(), "STICK:%c:%f:%f", &side, &x, &y) != 3 || (side != 'L' && side != 'R')) return false;
+        out->command = "stick " + std::to_string(side == 'R') + " " + std::to_string(x) + " " + std::to_string(y);
+        return true;
+    }
     if (tok.rfind("SHOT", 0) == 0) {
         out->command = "shot" + (tok.size() > 5 ? " " + tok.substr(5) : std::string());
         return true;
@@ -784,7 +815,7 @@ int usage() {
         "                [--keys K1,K2,..] [--exit-after-keys] [--animate] [--turns N] [--shot FILE.bmp]\n"
         "                [--snapshots DIR] [--rng FILE]\n"
         "                [--zoom Z] [--center X,Y] [--size WxH] [--hidden] [--outdir DIR] [--gamedir DIR]\n"
-        "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth] [--zoom-levels N]\n"
+        "                [--image FILE] [--ini FILE] [--mods DIR|none] [--smooth] [--modern] [--zoom-levels N]\n"
         "                [--zoom-details] [--thinker KEY=VALUE ...]\n"
         "                [--dump FILE.smxmap [--like REF.smxmap] [--scroll-from X,Y]\n"
         "                [--dump-options HEX] [--dump-radius X,Y,R]]\n"
@@ -794,7 +825,12 @@ int usage() {
 
 }  // namespace
 
+#ifdef __SWITCH__
+void switch_cpu_boost(bool on);  // app/switch_main.cpp
+int opensmac_main(int argc, char** argv) {  // main: app/switch_main.cpp, on a thread with a desktop's stack
+#else
 int main(int argc, char** argv) {
+#endif
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -818,6 +854,8 @@ int main(int argc, char** argv) {
             g_opt.mods_given = true;
         } else if (a == "--smooth") {
             g_opt.smooth = true;
+        } else if (a == "--modern") {
+            g_opt.modern = true;
         } else if (a == "--zoom-levels") g_opt.zoom_levels = std::atoi(next().c_str());
         else if (a == "--zoom-details") g_opt.zoom_details = true;
         else if (a == "--thinker") g_opt.thinker.push_back(next());
@@ -977,13 +1015,41 @@ int main(int argc, char** argv) {
             return std::clamp(std::atoi(buf), lo, hi);
         };
         const int slow = ini_int("Scroll Min", 1, 0, 100);
-        smoothview::set_edge_scroll(ini_int("Scroll Area", 40, 0, 400), slow, ini_int("Scroll Max", 20, slow, 100));
+#ifdef __SWITCH__
+        const int area = 0;  // no mouse: its position stays at the corner, which would scroll for ever
+#else
+        const int area = 40;
+#endif
+        smoothview::set_edge_scroll(ini_int("Scroll Area", area, 0, 400), slow, ini_int("Scroll Max", 20, slow, 100));
         // "Zoom Levels" (PRACX's): the zoom keys step through this many zooms spaced from the whole
         // map to a close view; 0: the original's steps. A player's game; tests only with --zoom-levels.
         const int levels = played ? ini_int("Zoom Levels", 6, 0, 16) : 0;
         smoothview::set_zoom_levels(g_opt.zoom_levels > 0 ? g_opt.zoom_levels : levels);
         // "Zoom Details" (PRACX's): improvements, units and bases drawn when zoomed out too.
         smoothview::set_zoom_details(g_opt.zoom_details || (played && ini_int("Zoom Details", 1, 0, 1) != 0));
+        // The modern unit animations (ui/modern.h): a player's game unless "Modern Animations" is 0
+        // (all of them off: the original's blink and moves), each with its own key under it,
+        // "Selection Ring" and "Smooth Unit Moves"; tests and the harness only with --modern.
+        {
+            const bool all = played && ini_int("Modern Animations", 1, 0, 1) != 0;
+            modern::set_enabled(g_opt.modern || (all && ini_int("Selection Ring", 1, 0, 1) != 0),
+                                g_opt.modern || (all && ini_int("Smooth Unit Moves", 1, 0, 1) != 0));
+        }
+        // "Show FPS" (default 0): the frames presented in the last second, at the top right.
+        platform::fps_show(played && ini_int("Show FPS", 0, 0, 1) != 0);
+#ifdef __SWITCH__
+        switch_cpu_boost(ini_int("CPU Boost", 0, 0, 1) != 0);  // switch_main.cpp
+#endif
+        {
+            // "Frame Rate": a moving view's frames a second, held for the display (30, 60; 0: as
+            // they are drawn). The Switch at its own clock does not draw every frame within a 60th.
+#ifdef __SWITCH__
+            const int rate = ini_int("Frame Rate", 30, 0, 60);
+#else
+            const int rate = ini_int("Frame Rate", 0, 0, 60);
+#endif
+            ui_set_pace(!played || rate <= 0 ? 0 : rate > 30 ? 1 : 2);
+        }
     }
     // Thinker's features (thinker/thinker.h): a player's game reads the [Thinker] section's options
     // (Thinker's names); a scripted run only --thinker KEY=VALUE.
@@ -1012,6 +1078,15 @@ int main(int argc, char** argv) {
     // (default 1, the desktop's; Alt+Enter toggles it and saves it).
     bool interactive = !g_opt.size_given && !g_opt.hidden && g_opt.keys.empty() && g_opt.shot.empty() &&
                        g_opt.dump.empty() && g_opt.basedump.empty();
+#ifdef __SWITCH__
+    // The console's own screen, 1280 x 720 (shown enlarged on a television): below the 768 rows
+    // the display settings keep to, and the windows are laid out for it as they are.
+    interactive = false;
+    if (!g_opt.size_given) {
+        g_opt.width = 1280;
+        g_opt.height = 720;
+    }
+#endif
     if (interactive) {
         char buf[32] = "";
         display::Settings ds;
@@ -1051,6 +1126,21 @@ int main(int argc, char** argv) {
     g_ui_unattended = g_ui_exit_when_script_done && !g_opt.animate;
     diplowin_set_animate(!g_opt.seeded || g_opt.animate);
     ui_script_keys(g_opt.keys);
+#ifdef OPENSMAC_SWITCH_DEV
+    switchdev::start([](const std::string& tokens) {
+        std::vector<ScriptedKey> keys;
+        std::string list = tokens + ",";
+        for (size_t p = 0, c; (c = list.find(',', p)) != std::string::npos; p = c + 1) {
+            std::string tok = list.substr(p, c - p);
+            ScriptedKey k;
+            if (tok.empty()) continue;
+            if (!parse_key(tok, &k)) return false;
+            keys.push_back(k);
+        }
+        ui_script_keys_add(keys);
+        return true;
+    });
+#endif
     g_harness_top_menu = menu ? main_menu : start_game_menu;
     g_harness_turn_upkeep = harness_turn_upkeep;
     // An online game: the state (no save) before each turn_upkeep, to compare the players' copies.

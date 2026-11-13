@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "engine/compat.h"
+#include "engine/game.h"
 #include "engine/map.h"
 #include "engine/battle.h"
 #include "engine/globals.h"
@@ -16,6 +17,7 @@
 #include "engine/veh.h"
 #include "ui/colortables.h"
 #include "ui/mapwin.h"
+#include "ui/modern.h"
 #include "ui/sprites.h"
 #include "ui/voxel.h"
 #include "ui/x87.h"
@@ -1028,6 +1030,15 @@ void tile_up(int32_t veh_id, int32_t x, int32_t y, bool tilt, float* up) {
     vec3_normalize(up, up);
 }
 
+// A modern move's frame (modern.h, vehdraw_move_frame): vehdraw_scoot draws the unit `t` of the way
+// through the slide's tilt, turned `eighths` on from the facing `from`. Not kept by the unit render
+// cache: no two frames are alike.
+struct MoveFrame {
+    bool on = false;
+    double t = 0, eighths = 0;
+    int32_t from = 0;
+} g_move;
+
 // The model of veh_id at (px, py) with the camera tilted by `up`, turned by `angle` (radians,
 // before the camera's yaw); the shield of armour 5 over it (vehdraw_draw, vehdraw_turn,
 // vehdraw_scoot).
@@ -1062,6 +1073,10 @@ void render_vehicle(Buffer* dest, int32_t veh_id, int32_t px, int32_t py, int32_
     Scene_set_rotation(sc, (float)(less_yaw ? angle - (double)CameraYaw : angle), 0.0f, 0.0f);
     const int32_t ox = ZoomNum > 0 ? ZoomNum * 0x32 / ZoomDenom : trunc_div16((zoom * 5 + 0x50) * 10);
     const int32_t oy = ox;
+    if (u.armor_id != 5 && !g_move.on) {  // (not original: the render kept, voxel.h)
+        Scene_render_unit(sc, dest, px + ox, py + oy, (uint32_t)((mode & 0x2000) | 0x1000) >> 12);
+        return;
+    }
     Scene_render(sc, dest, px + ox, py + oy, (uint32_t)((mode & 0x2000) | 0x1000) >> 12);
     if (u.armor_id == 5) {
         // The shield of armour 5: drawn over the unit through the blend tables.
@@ -1246,6 +1261,24 @@ void GAMEAPI vehdraw_scoot_start(int32_t veh_id, int32_t dir, int32_t frames, ui
 // first half's start plus `frame` steps, then the edge's plus the second half's steps.
 void GAMEAPI vehdraw_scoot(Buffer* dest, int32_t px, int32_t py, int32_t frame, int32_t zoom) {
     if (g_scoot.veh < 0) return;
+    if (g_move.on) {  // (not original: a modern move's frame)
+        const float half = (float)(g_scoot.frames >> 1);
+        float f = (float)(g_move.t * g_scoot.frames);
+        const float* base = g_scoot.up_src;
+        const float* step = g_scoot.step1;
+        if (half < f) {
+            f -= half;
+            base = g_scoot.up_mid;
+            step = g_scoot.step2;
+        }
+        float up[3];
+        vec3_scale(step, f, up);
+        vec3_add(up, base, up);
+        vec3_normalize(up, up);
+        render_vehicle(dest, g_scoot.veh, px, py, 0, zoom, up,
+                       (double)facing_angle(g_move.from) + g_move.eighths * (double)fbits(0x3F490E56), true);
+        return;
+    }
     const float* base = g_scoot.up_src;
     const float* step = g_scoot.step1;
     if (g_scoot.frames >> 1 < frame) {
@@ -1260,6 +1293,22 @@ void GAMEAPI vehdraw_scoot(Buffer* dest, int32_t px, int32_t py, int32_t frame, 
     // (the animated parts take the frame before it steps on: vehdraw_construct_vehicle, then +1)
     render_vehicle(dest, g_scoot.veh, px, py, 0, zoom, up, (double)g_scoot.dir * fbits(0x3F490E56), true);
     VehAnimFrame++;
+}
+
+void vehdraw_move_frame(bool on, double t, int32_t from, double eighths, int32_t anim_frame) {
+    g_move = MoveFrame{on, t, eighths, from};
+    if (on) VehAnimFrame = anim_frame;
+}
+
+int32_t vehdraw_waiting_unit() {
+    const int32_t sel = MapWinVehA;
+    if (GameNotStarted || sel < 0 || sel >= VehCount) return -1;
+    if (VehScootX != -1 && VehScootID == sel) return -1;  // being moved
+    if (!(FactionStatus[0] & (1 << Vehs[sel].faction_id)) || !veh_selectable(sel) || (Vehs[sel].state & 0x4200)) return -1;
+    if (!MapWinInVehMode || !MapWinField23BE4 || Vehs[sel].order != 0 || MapWinField23C00 ||
+        (MultiplayerActive && ControlTurnC))
+        return -1;
+    return sel;
 }
 
 int32_t GAMEAPI veh_draw(Buffer* dest, int32_t veh_id, int32_t px, int32_t py, int32_t zoom, int32_t mode, int32_t a7) {
@@ -1469,8 +1518,18 @@ void THISCALL MapWin_draw_vehicles(uint8_t* win, int32_t x, int32_t y, int32_t p
         if (sel >= 0 && x == Vehs[sel].x && y == Vehs[sel].y && (FactionStatus[0] & (1 << Vehs[sel].faction_id)) &&
             veh_selectable(sel) && !(Vehs[sel].state & 0x4200)) {
             v = sel;
-            if (MapWinInVehMode && MapWinField23BF8 && MapWinField23BE4 && Vehs[sel].order == 0 && !MapWinField23C00 &&
-                (!MultiplayerActive || !ControlTurnC)) {
+            const bool waits = MapWinInVehMode && MapWinField23BE4 && Vehs[sel].order == 0 && !MapWinField23C00 &&
+                               (!MultiplayerActive || !ControlTurnC);
+            if (waits && modern::ring()) {
+                // (Not original, modern.h: no blink. The main view leaves the unit to its ring,
+                // drawn with it at every presentation; the other views show it as it is.)
+                if (win == MapWins[0]) {
+                    pfncMapGetCornerYOffset(win, x, y, 0);
+                    const uint8_t* e = ui_mapwin_cache_entry(win, x, y);
+                    modern::ring_place(sel, x, y, px, py, e ? (int8_t)e[4] : 0);
+                    return;
+                }
+            } else if (waits && MapWinField23BF8) {
                 // The selected unit blinks: hidden while the mouse is near it, else drawn
                 // with mode 0x403. (Mouse position: not reconstructed, taken as far away.)
                 if (GameMorePreferences & MPREF_AV_WHOLE_VEH_BLINKS) return;

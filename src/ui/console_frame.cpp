@@ -36,6 +36,7 @@
 #include "ui/infowin.h"
 #include "platform/ui_platform.h"
 #include "ui/popup.h"
+#include "ui/smoothview.h"
 #include "ui/sprites.h"
 #include "ui/statuswin.h"
 #include "ui/vehdraw.h"
@@ -62,6 +63,7 @@ struct Art {
 } g_art;
 
 int32_t g_ox = 0, g_oy = 0;  // frame origin on the screen
+int32_t g_kept = 0;  // presents the console's picture has served (console_keep)
 
 void load_art() {
     if (g_art.loaded) return;
@@ -183,7 +185,10 @@ void console_frame_mouse(int32_t type, int32_t x, int32_t y) {
 
 void console_frame_draw(Buffer* s) {
     load_art();
-    if (!g_art.ok || Win_is_visible(&BaseWin)) return;
+    if (!g_art.ok || Win_is_visible(&BaseWin)) {
+        g_kept = 0;  // the base window draws in the same canvas
+        return;
+    }
     maininfc_geometry();
     // Below the main view the screen has nothing else: black.
     int32_t view_h = console_view_height(s->width, s->height);
@@ -195,6 +200,11 @@ void console_frame_draw(Buffer* s) {
     // MainInterface_on_redraw (mode 0): the console art, the panes' background and their contents
     // drawn into the main interface's canvas.
     Buffer* mi = basewin_mi_canvas();
+    // While the view moves the console is shown as it was drawn (console_keep).
+    const bool keep = console_keep(ui_animating(), g_kept) && !battlewin_shown() && diplowin_faction() < 0 &&
+                      !planwin_shown() && mi->data;
+    g_kept = keep ? g_kept + 1 : 1;
+    if (!keep) {
     const std::vector<uint8_t>& back = basewin_mi_back();
     if (mi->data && back.size() == (size_t)mi->stride * mi->height) std::memcpy(mi->data, back.data(), back.size());
     mi_slide_draw(mi);  // the console slid down (the battle report)
@@ -239,6 +249,7 @@ void console_frame_draw(Buffer* s) {
     // PlanWin (the go-to list's, the diplomacy's base and battle previews): its own window over the
     // world map pane (above DiploPop's HQ pane).
     if (planwin_shown()) planwin_compose(mi);
+    }
     // The window onto the screen (colour 9: the screen behind).
     const UiRect& pos = main_interface().pos;
     g_ox = pos.left;

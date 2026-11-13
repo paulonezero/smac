@@ -94,6 +94,14 @@ bool panning();
 bool busy();
 
 void mouse(int32_t x, int32_t y);  // the mouse's latest position
+// A controller's stick: the view pans at x, y tiles a second (0, 0: not), as at a screen edge.
+void pad_pan(double x, double y);
+bool map_shown();  // the main view is what the player is looking at, on the player's own turn
+// The view is in motion (a glide, a pan, a scroll): frames follow each other as fast as they are
+// drawn, and what does not move with the map may be shown as it was for a few of them.
+bool moving();
+// A zoom is scaling its picture: what is drawn over the map at a presentation has no place in it.
+bool scaling();
 void wheel(float dx, float dy);  // a scroll wheel or two fingers on a trackpad: zoom steps
 void tick();  // the main loop
 

@@ -149,6 +149,11 @@ ADDR_NATIVE(0x618470) void THISCALL Scene_clear(VoxelScene* self, int32_t keep_d
 // rotation for the bounding box. 0, or 7 (not initialised / no dest).
 ADDR_NATIVE(0x617230)
 int32_t THISCALL Scene_render(VoxelScene* self, Buffer* dest, int32_t x, int32_t y, uint32_t flags);
+// Not original: Scene_render and the Scene_clear(self, 0) after it, as the map draws a unit, with
+// the rendered canvases kept by their inputs (voxel_render.cpp). voxel_cache_clear: a model was
+// loaded or freed.
+int32_t THISCALL Scene_render_unit(VoxelScene* self, Buffer* dest, int32_t x, int32_t y, uint32_t flags);
+void voxel_cache_clear();
 // Renders the scene over a canvas filled with `key` and blits it to dest through `table`
 // (a 256 x 256 translation: dest = table[model pixel * 256 + dest pixel]).
 ADDR_NATIVE(0x6171A0)

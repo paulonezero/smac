@@ -1,4 +1,5 @@
 // The smooth map view's arithmetic (ui/smoothview_math.h).
+#include "ui/console_frame.h"
 #include "ui/smoothview_math.h"
 #include "unit.h"
 
@@ -203,4 +204,18 @@ TEST_CASE("smoothview: the wheel's scrolls add up to zoom steps") {
     CHECK(wheel_zoom(&acc, 3.0, 3.0, -1) == -1);
     CHECK(wheel_zoom(&acc, 30.0, 3.0, 0) == 0);
     CHECK(acc == 0);
+}
+
+TEST_CASE("console_keep: the console's picture while the view moves") {
+    // Still: drawn every time. No picture yet: drawn.
+    for (int32_t k = 0; k < 10; k++) CHECK(!console_keep(false, k));
+    CHECK(!console_keep(true, 0));
+    // Moving: drawn once, then that picture for as long as the view moves.
+    int32_t kept = 0, drawn = 0;
+    for (int32_t i = 0; i < 80; i++) {
+        const bool keep = console_keep(true, kept);
+        kept = keep ? kept + 1 : 1;
+        if (!keep) drawn++;
+    }
+    CHECK(drawn == 1);
 }

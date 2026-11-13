@@ -503,6 +503,8 @@ void AlphaMenu_hide_main() {
     if (g_open) hide_column();
 }
 
+bool console_menu_open() { return g_open; }
+
 void console_menu_toggle() {
     build();
     if (g_open) hide_column();

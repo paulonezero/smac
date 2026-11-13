@@ -17,3 +17,5 @@
 /headless_out/
 __pycache__/
 /opensmac_out/
+# The Switch console's address on the local network (packaging/switch/dev.py --ip)
+/packaging/switch/.switch-ip

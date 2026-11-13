@@ -364,6 +364,7 @@ int32_t THISCALL CaviarHandle_load(CaviarHandle* self, const char* file) {
 }
 
 void THISCALL CaviarHandle_free(CaviarHandle* self) {
+    if (self->data) voxel_cache_clear();  // its renders are kept by the model's address
     delete self->data;
     self->data = nullptr;
 }

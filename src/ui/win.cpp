@@ -1,4 +1,5 @@
 // Window layer of OpenSMAC (see win.h): screen, message pump, keyboard, placeholder console panel.
+#include "ui/gamepad.h"
 #include "ui/infowin.h"
 #include "ui/tutwin.h"
 #include "ui/diplowin.h"
@@ -11,11 +12,14 @@
 #include "ui/smoothview.h"
 #include "ui/sound.h"
 
+#include <chrono>
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <mutex>
 #include <set>
 
 #include "engine/clock.h"
@@ -32,6 +36,7 @@
 #include "ui/basewin.h"
 #include "ui/console_frame.h"
 #include "ui/mapwin.h"
+#include "ui/modern.h"
 #include "ui/popup.h"
 #include "ui/screenwin.h"
 #include "ui/techwin.h"
@@ -54,10 +59,19 @@ Buffer g_view;  // the main view's GraphicWin canvas
 bool g_ready = false;
 bool g_map_dirty = true;
 bool g_dirty = true;
+int32_t g_pace = 0;  // ui_set_pace: display refreshes a frame while the view moves (0: not held)
+int32_t g_anim = 0;  // ui_anim
+bool g_ring_dirty = false, g_ring_frame = false;  // the ring wants a frame; this present is that frame
+bool g_loop_ring = false;  // this present is the main loop's, with the ring breathing
 uint32_t g_last_present = 0;
 std::deque<ScriptedKey> g_script;
 bool g_script_given = false;
+std::mutex g_script_more_mutex;  // ui_script_keys_add
+std::vector<ScriptedKey> g_script_more;
+std::atomic<bool> g_script_more_any{false};
 std::deque<platform::Event> g_input;  // input events read while pumping non-input messages
+std::deque<platform::Event> g_pad_events;  // the controller's keys and mouse events (ui/gamepad.h)
+bool g_modal_reads = false;  // the loop reading the platform's input is a modal's (ui_modal_active)
 std::string g_message;
 Font g_font;
 bool g_font_ok = false;
@@ -71,6 +85,7 @@ int32_t g_drag_x = -1, g_drag_y = -1;
 bool g_desktop = false;
 // Palette layers (ui_layer_mark): per pixel of the screen, the palette it is shown through.
 std::vector<uint8_t> g_layers;
+bool g_layers_marked = false;  // a pixel of g_layers is not 0 (ui_layer_mark)
 const Palette* g_layer_pals[4] = {};
 
 // ---- keyboard: the original's Win_on_key (0x5F5D10) with TranslateMessage for a US layout ----
@@ -430,17 +445,81 @@ bool run_command(const std::string& cmd) {
         ui_popup_command(arg);
         return true;
     }
+    if (cmd.rfind("pad ", 0) == 0) {  // test aid: a controller's button (PAD:NAME[:down|:up])
+        int button = 0, how = 0;
+        if (std::sscanf(arg.c_str(), "%d %d", &button, &how) == 2) {
+            if (how != 2) platform::pad_inject_button(button, true);
+            if (how != 1) platform::pad_inject_button(button, false);
+        }
+        return true;
+    }
+    if (cmd.rfind("stick ", 0) == 0) {  // test aid: a stick held at X,Y (STICK:L|R:X:Y)
+        int stick = 0;
+        float x = 0, y = 0;
+        if (std::sscanf(arg.c_str(), "%d %f %f", &stick, &x, &y) == 3) {
+            platform::pad_inject_axis(stick * 2, x);
+            platform::pad_inject_axis(stick * 2 + 1, y);
+        }
+        return true;
+    }
     std::fprintf(stderr, "unknown scripted command '%s'\n", cmd.c_str());
     return false;
 }
 
 // Reads platform events into g_input; handles the non-input ones. Returns true if any arrived.
 bool pump_platform(int32_t timeout_ms) {
+    // OPENSMAC_FRAMELOG: the pumps that do not wait (those of the engine's long work, and of a
+    // draw's path finding), counted every two seconds.
+    static const bool pump_log = std::getenv("OPENSMAC_FRAMELOG") != nullptr;
+    struct PumpLog {
+        bool on;
+        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+        ~PumpLog() {
+            if (!on) return;
+            static int32_t calls = 0, in_present = 0;
+            static double ms = 0;
+            static uint32_t said = 0;
+            calls++;
+            if (ui_presenting()) in_present++;
+            ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            const uint32_t now = platform::ticks_ms();
+            if (now - said < 2000) return;
+            std::fprintf(stderr, "pumps without a wait: %d (%d inside a present), %.1f ms in all\n", calls, in_present, ms);
+            calls = in_present = 0;
+            ms = 0;
+            said = now;
+        }
+    } pump_logger{pump_log && timeout_ms == 0};
     platform::Event ev;
     bool any = false;
-    bool got = timeout_ms > 0 ? platform::wait_event(&ev, timeout_ms) : platform::poll_event(&ev);
+    // The controller (ui/gamepad.h): its sticks and held buttons each time round, and the events
+    // it makes read before the platform's, as if they had come from there.
+    gamepad_tick(&g_pad_events);
+    if (gamepad_busy()) timeout_ms = std::min(timeout_ms, 8);
+    auto next = [&](bool wait) {
+        if (!g_pad_events.empty()) {
+            ev = g_pad_events.front();
+            g_pad_events.pop_front();
+            return true;
+        }
+        return wait && timeout_ms > 0 ? platform::wait_event(&ev, timeout_ms) : platform::poll_event(&ev);
+    };
+    bool got = next(true);
     while (got) {
         any = true;
+        if (ev.type == platform::EV_PAD_DOWN || ev.type == platform::EV_PAD_UP) {
+            gamepad_event(ev, &g_pad_events);
+            got = next(false);
+            continue;
+        }
+        if (ev.type == platform::EV_PAD_STICK) {
+            got = next(false);
+            continue;
+        }
+        if (ev.type == platform::EV_LBUTTON_DOWN || ev.type == platform::EV_RBUTTON_DOWN) {
+            if (ev.wheel_x != 0) gamepad_mouse_used();
+            ev.wheel_x = 0;
+        }
         if (ev.type == platform::EV_QUIT) quit_requested();
         else if (ev.type == platform::EV_EXPOSE) g_dirty = true;
         else if (ev.type == platform::EV_CLOSE) {  // once, for the loop that takes input next
@@ -461,7 +540,7 @@ bool pump_platform(int32_t timeout_ms) {
             if (!g_input.empty() && g_input.back().type == platform::EV_MOUSE_MOVE) g_input.back() = ev;
             else g_input.push_back(ev);
         }
-        got = platform::poll_event(&ev);
+        got = next(false);
     }
     return any;
 }
@@ -531,6 +610,17 @@ void ui_set_drag_target(int32_t x, int32_t y) {
     g_drag_y = y;
     g_dirty = true;
 }
+void ui_set_pace(int32_t refreshes) { g_pace = refreshes; }
+int32_t ui_pace() { return g_pace; }
+// Frames follow each other: the view moves, a unit's modern move plays (ui_anim), or this frame
+// is the selection ring's alone (g_ring_frame). Such frames are held for the display (g_pace) and
+// keep the console's picture (console_frame.h, console_keep): nothing in it changes in them.
+void ui_anim(bool on) { g_anim += on ? 1 : -1; }
+bool ui_animating() { return smoothview::moving() || g_anim > 0 || g_ring_frame; }
+// Held for the display as well: any frame of the main loop while the ring breathes (the ring is
+// drawn in each, and one that came early would show as a jump in its breathing).
+static bool paced() { return ui_animating() || g_loop_ring; }
+void ui_invalidate_ring() { g_ring_dirty = true; }
 void ui_invalidate_map() { g_map_dirty = g_dirty = true; }
 void ui_invalidate() { g_dirty = true; }
 bool ui_map_dirty() { return g_map_dirty; }
@@ -560,19 +650,14 @@ void ui_layer_mark(int32_t x0, int32_t y0, const Buffer* src, uint8_t layer, int
             int32_t sx = x0 + x;
             if (sx < 0 || sx >= g_canvas.width || s[x] == key) continue;
             d[sx] = layer;
+            if (layer) g_layers_marked = true;
         }
     }
 }
 
 // The palettes of the screen's layers for the platform (none when every pixel is of layer 0).
 static void set_layers() {
-    bool any = false;
-    for (uint8_t l : g_layers)
-        if (l) {
-            any = true;
-            break;
-        }
-    if (!any) {
+    if (!g_layers_marked) {
         platform::set_layer_palettes(nullptr, 0, nullptr, 0);
         return;
     }
@@ -673,20 +758,44 @@ void ui_present() {
         Guard() { g_presenting = true; }
         ~Guard() { g_presenting = false; }
     } guard;
+    platform::WorkScope work(false, true);  // the frame rate indicator's frame
+    // OPENSMAC_FRAMELOG: where a present's time goes (ms a present, over 30).
+    static const bool prof = std::getenv("OPENSMAC_FRAMELOG") != nullptr;
+    static double psum[9] = {};
+    static int pn = 0;
+    auto pnow = [] { return std::chrono::steady_clock::now(); };
+    auto pt = pnow();
+    int pat = 0;
+#define PROF(i) \
+    do { \
+        if (prof) { \
+            auto n = pnow(); \
+            psum[pat] += std::chrono::duration<double, std::milli>(n - pt).count(); \
+            pt = n; \
+            pat = i; \
+        } \
+    } while (0)
     g_layers.assign((size_t)g_canvas.stride * g_canvas.height, 0);
+    g_layers_marked = false;
+    PROF(1);
     if (g_desktop) {
         // The opening screens: black behind the windows (the desktop window, the menus).
         std::memset(g_canvas.data, 0, (size_t)g_canvas.stride * g_canvas.height);
     } else {
+        modern::ring_check();  // (not original: the selection ring's unit changed)
         if (g_map_dirty) {
             g_map_dirty = false;
             pfncRedrawMap(MapWins[0], 1);
         }
+    PROF(2);
         for (int32_t y = 0; y < g_canvas.height; y++) {
             uint8_t* dst = g_canvas.data + (size_t)y * g_canvas.stride;
             if (y < g_view.height) std::memcpy(dst, g_view.data + (size_t)y * g_view.stride, (size_t)g_view.width);
         }
+    PROF(3);
         draw_map_cursor();
+        modern::ring_draw(&g_canvas, g_view.width, g_view.height);  // (not original)
+    PROF(4);
         console_frame_draw(&g_canvas);
         if (g_desktop_shown && g_desktop_buf.data) {  // DesktopWin over the windows (go-to drag)
             for (int32_t y = 0; y < g_canvas.height; y++) {
@@ -697,6 +806,7 @@ void ui_present() {
             }
         }
     }
+    PROF(5);
     // Full-screen windows (reports, social engineering; screenwin.h), those shown after DiploPop's
     // window over it (the new technology of a trade, PROFILE's report).
     uint32_t diplo_seq = diplowin_window_seq();
@@ -710,10 +820,22 @@ void ui_present() {
     popup_draw_windows(&g_canvas);
     draw_bubble(&g_canvas);
     console_draw_cursor(&g_canvas);
+    PROF(6);
     set_layers();
+    PROF(7);
+    platform::present_interval(paced() ? g_pace : 0);
     platform::video_present(g_canvas.data, g_canvas.stride, g_canvas.width, g_canvas.height,
                             reinterpret_cast<const platform::Rgb*>(GamePalette.rgb));
+    PROF(8);
+#undef PROF
+    if (prof && ++pn == 30) {
+        std::fprintf(stderr, "present cost: layers %.1f map %.1f copy %.1f cursor %.1f frame %.1f windows %.1f setlayers %.1f video %.1f ms\n",
+                     psum[0] / pn, psum[1] / pn, psum[2] / pn, psum[3] / pn, psum[4] / pn, psum[5] / pn, psum[6] / pn, psum[7] / pn);
+        for (double& v : psum) v = 0;
+        pn = 0;
+    }
     g_dirty = false;
+    g_ring_dirty = false;
     g_last_present = platform::ticks_ms();
 }
 
@@ -745,6 +867,12 @@ void ui_trace(const char* what) {
 void ui_script_keys(const std::vector<ScriptedKey>& keys) {
     g_script.assign(keys.begin(), keys.end());
     g_script_given = !keys.empty();
+}
+
+void ui_script_keys_add(const std::vector<ScriptedKey>& keys) {
+    std::lock_guard<std::mutex> lock(g_script_more_mutex);
+    g_script_more.insert(g_script_more.end(), keys.begin(), keys.end());
+    g_script_more_any = true;
 }
 
 // ---- message pump ----
@@ -812,6 +940,12 @@ static bool net_note_seen(const std::string& text) {
 }
 
 static bool script_ready() {
+    if (g_script_more_any) {  // keys added by another thread (ui_script_keys_add)
+        std::lock_guard<std::mutex> lock(g_script_more_mutex);
+        g_script.insert(g_script.end(), g_script_more.begin(), g_script_more.end());
+        g_script_more.clear();
+        g_script_more_any = false;
+    }
     static bool waiting = false;
     static uint32_t deadline = 0;
     while (!g_script.empty() && g_script.front().command.rfind("waitfor ", 0) == 0) {
@@ -845,7 +979,12 @@ void GAMEAPI wait_task() {
     if (MultiplayerActive) Net_handle_sys_msg(&NetState);  // (do_all_tasks: the session's events)
     if (MultiplayerActive) multiwin_net_tick();             // (the turn_timer's WM_TIMER)
     // do_video: the window is presented when it changed.
-    if (g_dirty || g_map_dirty) ui_present();
+    if (g_dirty || g_map_dirty || g_ring_dirty) {
+        g_loop_ring = modern::ring_active();
+        g_ring_frame = !g_dirty && !g_map_dirty;  // nothing changed but the selection ring
+        ui_present();
+        g_loop_ring = g_ring_frame = false;
+    }
     if (script_ready()) {
         ScriptedKey k = g_script.front();
         g_script.pop_front();
@@ -898,7 +1037,10 @@ void GAMEAPI wait_task() {
         return;
     }
     smoothview::tick();
-    if (g_input.empty()) pump_platform(smoothview::busy() ? 1 : 20);
+    g_modal_reads = false;
+    // (The ring's frames are held for the display when paced: the loop comes round in time for
+    // each refresh's frame.)
+    if (g_input.empty()) pump_platform(smoothview::busy() ? 1 : g_pace && modern::ring_active() ? 6 : 20);
     if (g_input.empty()) return;
     platform::Event ev = g_input.front();
     g_input.pop_front();
@@ -1027,6 +1169,10 @@ int32_t ui_wait_key() {
     }
 }
 
+// A popup, screen or menu is taking the input: the loop that last read the platform's events for
+// itself is ui_wait_input's (a modal's), not the map's own (wait_task).
+bool ui_modal_active() { return g_modal_reads; }
+
 bool ui_wait_input(UiInput* in) {
     static int32_t pending_up = -1, pending_x = 0, pending_y = 0;
     static uint32_t last_down = 0;
@@ -1092,6 +1238,7 @@ bool ui_wait_input(UiInput* in) {
         if (g_idle_hook && g_idle_hook()) return false;  // (the network setup window: started)
         if (!modal_callback()) return false;
         if (MultiplayerActive && g_modal_open && !*g_modal_open) return false;
+        g_modal_reads = true;
         if (g_input.empty()) pump_platform(g_idle_hook ? 10 : 50);
         planwin_tick(platform::ticks_ms());  // the modal popup's timers: PlanWin_blink, line_timer
         multiwin_net_tick();                 // a network game's turn_timer

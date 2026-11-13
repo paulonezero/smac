@@ -7,9 +7,13 @@
 // does on an 8-bit DIB). Portable to Linux, macOS and Windows; nothing X11-specific.
 #include "platform/keymap.h"
 #include "platform/ui_platform.h"
+#include "platform/fps.h"
 #include "platform/win32.h"
 
 #include <SDL.h>
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
 #include <SDL_ttf.h>
 
 #include <algorithm>
@@ -46,6 +50,9 @@ void update_scaling() {
     g_output_w = pw;
     g_output_h = ph;
     bool whole = pw / g_width >= 1 && ph / g_height >= 1;
+#ifdef __SWITCH__  // a television's 1920 x 1080: the frame fills it, smoothed, with no black around it
+    whole = pw % g_width == 0 && ph % g_height == 0;
+#endif
     SDL_RenderSetLogicalSize(g_renderer, g_width, g_height);
     SDL_RenderSetIntegerScale(g_renderer, whole ? SDL_TRUE : SDL_FALSE);
 #if SDL_VERSION_ATLEAST(2, 0, 12)
@@ -142,6 +149,8 @@ void to_client(int32_t wx, int32_t wy, int32_t* x, int32_t* y) {
     *y = std::clamp(wy, 0, std::max(0, g_height - 1));
 }
 
+float g_pad_axis[4] = {};  // the sticks, from the axis events (so that injected ones count)
+
 bool translate(const SDL_Event& e, Event* ev) {
     *ev = Event{};
     switch (e.type) {
@@ -161,6 +170,16 @@ bool translate(const SDL_Event& e, Event* ev) {
             return true;
         }
         return false;
+    case SDL_JOYBUTTONDOWN:
+    case SDL_JOYBUTTONUP:
+        ev->type = e.type == SDL_JOYBUTTONDOWN ? EV_PAD_DOWN : EV_PAD_UP;
+        ev->key = e.jbutton.button;
+        return true;
+    case SDL_JOYAXISMOTION:
+        if (e.jaxis.axis >= 4) return false;
+        g_pad_axis[e.jaxis.axis] = std::clamp(e.jaxis.value / 32767.0f, -1.0f, 1.0f);
+        ev->type = EV_PAD_STICK;
+        return true;
     case SDL_MOUSEMOTION:
         ev->type = EV_MOUSE_MOVE;
         to_client(e.motion.x, e.motion.y, &ev->x, &ev->y);
@@ -168,11 +187,17 @@ bool translate(const SDL_Event& e, Event* ev) {
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP: {
         bool down = e.type == SDL_MOUSEBUTTONDOWN;
+        if (down) ev->wheel_x = 1;  // from the mouse or the touch screen itself (ui/gamepad.h hides its pointer)
         if (e.button.button == SDL_BUTTON_LEFT) ev->type = down ? EV_LBUTTON_DOWN : EV_LBUTTON_UP;
         else if (e.button.button == SDL_BUTTON_RIGHT) ev->type = down ? EV_RBUTTON_DOWN : EV_RBUTTON_UP;
         else return false;
         to_client(e.button.x, e.button.y, &ev->x, &ev->y);
         ev->mods = to_mods(SDL_GetModState());
+        static const bool log = std::getenv("OPENSMAC_KEYLOG") != nullptr;
+        if (log) {
+            std::fprintf(stderr, "button %d %s at %d,%d%s\n", e.button.button, down ? "down" : "up", ev->x, ev->y,
+                         e.button.which == SDL_TOUCH_MOUSEID ? " (touch)" : "");
+        }
         return true;
     }
     case SDL_MOUSEWHEEL:
@@ -377,7 +402,22 @@ bool file_ok(const std::string& path) {
 // GDI face name -> font file. Arial is a Windows system font; Wine substitutes the metrically
 // compatible Liberation Sans, which is what the oracle screenshots show. The game ships Arial
 // Narrow (arialn*.ttf), used as the fallback.
+std::string find_font_file_uncached(const char* face, bool bold, bool italic);
+// The search is done once for a face and style. It tries up to seventy files, and a font is asked
+// for at every redraw of some panes: on a system without Arial every one of those is a file that
+// is not there, and on the Switch's card that came to 300 ms a frame.
 std::string find_font_file(const char* face, bool bold, bool italic) {
+    static std::map<std::string, std::string> found;
+    std::string key = face ? face : "";
+    for (auto& c : key) c = (char)std::tolower((unsigned char)c);
+    key += bold ? "|b" : "|";
+    key += italic ? "i" : "";
+    key += "|" + g_game_dir;
+    auto it = found.find(key);
+    if (it == found.end()) it = found.emplace(key, find_font_file_uncached(face, bold, italic)).first;
+    return it->second;
+}
+std::string find_font_file_uncached(const char* face, bool bold, bool italic) {
     std::string f = face ? face : "";
     for (auto& c : f) c = (char)std::tolower((unsigned char)c);
     std::vector<std::string> names;
@@ -453,10 +493,25 @@ bool sdl_init() {
 #ifdef SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE  // SDL 2.0.22
     SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
 #endif
+#ifdef __SWITCH__
+    // The touch screen is the mouse. SDL's Switch port turns that off as its default
+    // (SWITCH_InitTouch: SDL_HINT_TOUCH_MOUSE_EVENTS "0" at default priority); a hint set here wins.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+#ifdef __SWITCH__
+    // That port reads no touch, mouse or key while text input is on (SWITCH_PumpEvents).
+    SDL_StopTextInput();
+    // The console's own controls: player 1's only (the port announces eight, and opens the
+    // system's controller screen when an opened one changes type while docked).
+    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) == 0) {
+        SDL_JoystickEventState(SDL_ENABLE);
+        if (!SDL_JoystickOpen(0)) std::fprintf(stderr, "SDL_JoystickOpen: %s\n", SDL_GetError());
+    }
+#endif
     if (TTF_Init() != 0) {
         std::fprintf(stderr, "TTF_Init: %s\n", TTF_GetError());
         return false;
@@ -493,7 +548,9 @@ bool video_init(const char* title, int32_t width, int32_t height, bool hidden) {
     SDL_RenderSetLogicalSize(g_renderer, width, height);
     g_texture = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
     update_scaling();
+#ifndef __SWITCH__  // SDL's Switch port reads no touch, pad or key while text input is on
     SDL_StartTextInput();
+#endif
     return g_texture != nullptr;
 }
 
@@ -595,17 +652,243 @@ void video_shutdown() {
     SDL_Quit();
 }
 
+namespace {
+// The drawn pointer: an arrow, its tip at the top left, as a texture of its own over the frame.
+constexpr int kPointerW = 13, kPointerH = 20;
+const char* const kPointerArt[kPointerH] = {
+    "#            ", "##           ", "#.#          ", "#..#         ", "#...#        ", "#....#       ",
+    "#.....#      ", "#......#     ", "#.......#    ", "#........#   ", "#.........#  ", "#..........# ",
+    "#......######", "#...#..#     ", "#..# #..#    ", "#.#  #..#    ", "##    #..#   ", "#     #..#   ",
+    "       #..#  ", "        ##   "};
+SDL_Texture* g_pointer_tex = nullptr;
+int32_t g_pointer_x = 0, g_pointer_y = 0;
+bool g_pointer_shown = false;
+
+void draw_pointer() {
+    if (!g_pointer_shown || !g_renderer) return;
+    if (!g_pointer_tex) {
+        g_pointer_tex =
+            SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, kPointerW, kPointerH);
+        if (!g_pointer_tex) return;
+        uint32_t px[kPointerW * kPointerH];
+        for (int y = 0; y < kPointerH; y++)
+            for (int x = 0; x < kPointerW; x++) {
+                const char c = kPointerArt[y][x];
+                px[y * kPointerW + x] = c == '#' ? 0xFF000000u : c == '.' ? 0xFFFFFFFFu : 0;
+            }
+        SDL_UpdateTexture(g_pointer_tex, nullptr, px, kPointerW * 4);
+        SDL_SetTextureBlendMode(g_pointer_tex, SDL_BLENDMODE_BLEND);
+    }
+    // Twice its size on a frame of 1280 or more across: 13 pixels are lost on a small screen.
+    const int s = g_width >= 1280 ? 2 : 1;
+    SDL_Rect dst{g_pointer_x, g_pointer_y, kPointerW * s, kPointerH * s};
+    SDL_RenderCopy(g_renderer, g_pointer_tex, nullptr, &dst);
+}
+
+bool g_fps_shown = false;
+fps::Work g_work;
+
+uint64_t now_us() { return SDL_GetPerformanceCounter() * 1000000ull / SDL_GetPerformanceFrequency(); }
+
+void draw_fps() {
+    static const bool env = std::getenv("OPENSMAC_FPS") != nullptr;
+    if ((!g_fps_shown && !env) || !g_renderer) return;
+    const int s = g_width >= 1280 ? 4 : 2;  // a dot's size
+    char text[24];
+    const int len = std::snprintf(text, sizeof(text), "%d %d", g_work.fps(), (int)(g_work.ms() + 0.5));
+    const int w = (len * 4 + 1) * s, h = 7 * s, x0 = g_width - w;
+    SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
+    SDL_Rect box{x0, 0, w, h};
+    SDL_RenderFillRect(g_renderer, &box);
+    SDL_SetRenderDrawColor(g_renderer, 255, 255, 0, 255);
+    for (int i = 0; i < len; i++) {
+        if (text[i] == ' ') {  // after it the milliseconds, in white
+            SDL_SetRenderDrawColor(g_renderer, 255, 255, 255, 255);
+            continue;
+        }
+        for (int y = 0; y < 5; y++)
+            for (int x = 0; x < 3; x++) {
+                if (!fps::dot(text[i] - '0', x, y)) continue;
+                SDL_Rect r{x0 + (i * 4 + 1 + x) * s, (1 + y) * s, s, s};
+                SDL_RenderFillRect(g_renderer, &r);
+            }
+    }
+    SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
+}
+}  // namespace
+
+void fps_show(bool on) { g_fps_shown = on; }
+
+static int32_t g_interval = 0;  // present_interval
+#ifdef __SWITCH__
+// The console's display tells each refresh by an event. A frame held for the display waits for
+// the refresh that is `g_interval` after the one its predecessor went out on, and is presented
+// then, so frames are a whole number of refreshes apart. (The renderer's swap interval does not
+// do it: the first presents after it is set fill a queue without waiting, and a short animation
+// is over before the queue is full.)
+static ::Event g_vsync;
+static bool g_vsync_ok = false;
+static void vsync_open() {
+    static bool tried = false;
+    if (tried) return;
+    tried = true;
+    ViDisplay display;
+    const Result r0 = viInitialize(ViServiceType_Default);  // (counted: the window's own stays)
+    Result r1 = R_SUCCEEDED(r0) ? viOpenDefaultDisplay(&display) : r0;
+    if (R_FAILED(r1) && R_SUCCEEDED(r0)) {
+        // The window (libnx's) has the default display open already and keeps its handle to
+        // itself; a second opening is refused. The event is asked for by the display's id, and the
+        // default display's is 0. An event that then never comes is found out below.
+        display = ViDisplay{};
+        display.display_id = 0;
+        display.initialized = true;
+    }
+    const Result r2 = R_SUCCEEDED(r0) ? viGetDisplayVsyncEvent(&display, &g_vsync) : r0;
+    g_vsync_ok = R_SUCCEEDED(r2);
+    if (g_vsync_ok) {  // it must come, and a 60th apart
+        eventClear(&g_vsync);
+        const bool a = R_SUCCEEDED(eventWait(&g_vsync, 100000000ull));
+        const uint64_t t = now_us();
+        eventClear(&g_vsync);
+        const bool b2 = a && R_SUCCEEDED(eventWait(&g_vsync, 100000000ull));
+        const uint64_t d = now_us() - t;
+        g_vsync_ok = b2 && d > 12000 && d < 21000;
+        std::fprintf(stderr, "present interval: two refreshes %llu us apart\n", (unsigned long long)d);
+    }
+    std::fprintf(stderr, "present interval: the display's refresh event %s (results %x %x %x)\n",
+                 g_vsync_ok ? "is used" : "is not there", (unsigned)r0, (unsigned)r1, (unsigned)r2);
+}
+#endif
+void present_interval(int32_t refreshes) {
+    g_interval = refreshes;
+#ifdef __SWITCH__
+    if (refreshes > 0) vsync_open();
+#endif
+}
+// Before a present: the wait for the frame's refresh (present_interval).
+static void hold_for_display() {
+    static uint64_t slot = 0;  // when the last held frame went out
+    if (g_interval <= 0) return;
+    const uint64_t period = (uint64_t)g_interval * 16667;
+#ifdef __SWITCH__
+    if (g_vsync_ok) {
+        // The next refresh that is not too soon after the last frame's (3 ms of slack for the
+        // event's own lateness). At most `g_interval` + 1 waits: a display that stops telling
+        // does not stop the game.
+        for (int32_t i = 0; i <= g_interval; i++) {
+            eventClear(&g_vsync);
+            if (R_FAILED(eventWait(&g_vsync, 50000000ull))) break;
+            if (now_us() - slot + 3000 >= period) break;
+        }
+        slot = now_us();
+        return;
+    }
+#endif
+    // By the clock: a whole number of periods after the last frame's place, so the frames keep
+    // their place against the display's refreshes; a frame that is late starts the count again.
+    const uint64_t now = now_us();
+    if (slot && now < slot + period) {
+        const uint64_t due = slot + period;
+        if (due - now > 2000) SDL_Delay((uint32_t)((due - now - 1000) / 1000));
+        while (now_us() < due) {}  // the last millisecond: the delay is only that exact
+        slot = due;
+    } else {
+        slot = now;
+    }
+}
+void work_begin(bool map) { g_work.begin(now_us(), map); }
+void work_end(bool frame) { g_work.end(now_us(), frame); }
+
+void pad_stick(int32_t stick, float* x, float* y) {
+    *x = stick == 0 ? g_pad_axis[0] : g_pad_axis[2];
+    *y = stick == 0 ? g_pad_axis[1] : g_pad_axis[3];
+}
+
+void pad_inject_button(int32_t button, bool down) {
+    SDL_Event e{};
+    e.type = down ? SDL_JOYBUTTONDOWN : SDL_JOYBUTTONUP;
+    e.jbutton.button = (Uint8)button;
+    e.jbutton.state = down ? SDL_PRESSED : SDL_RELEASED;
+    SDL_PushEvent(&e);
+}
+
+void pad_inject_axis(int32_t axis, float value) {
+    SDL_Event e{};
+    e.type = SDL_JOYAXISMOTION;
+    e.jaxis.axis = (Uint8)axis;
+    e.jaxis.value = (Sint16)(std::clamp(value, -1.0f, 1.0f) * 32767.0f);
+    SDL_PushEvent(&e);
+}
+
+void pointer_set(int32_t x, int32_t y, bool shown) {
+    if (x == g_pointer_x && y == g_pointer_y && shown == g_pointer_shown) return;
+    g_pointer_x = x;
+    g_pointer_y = y;
+    g_pointer_shown = shown;
+    // The frame as it is, with the pointer at its new place: no conversion, no upload.
+    if (!g_texture || !g_renderer) return;
+    SDL_RenderClear(g_renderer);
+    SDL_RenderCopy(g_renderer, g_texture, nullptr, nullptr);
+    draw_pointer();
+    draw_fps();
+    SDL_RenderPresent(g_renderer);
+}
+
 void video_present(const uint8_t* pixels, int32_t pitch, int32_t width, int32_t height, const Rgb* palette) {
     if (!g_texture) return;
     // A drawable resized without its event seen yet (the fullscreen switch of a busy game).
     int pw = 0, ph = 0;
     if (SDL_GetRendererOutputSize(g_renderer, &pw, &ph) == 0 && (pw != g_output_w || ph != g_output_h))
         update_scaling();
+    // OPENSMAC_FRAMELOG=1: every two seconds, the frames shown and where their time went (ms a
+    // frame): the palette conversion, the texture upload, the present, and the time between
+    // presents (the game's own drawing), with the longest.
+    static const bool log = std::getenv("OPENSMAC_FRAMELOG") != nullptr;
+    static uint64_t t_end = 0, t_report = 0, sum[4] = {}, worst = 0;
+    static uint64_t gap_min = ~0ull, gap_max = 0;  // present to present
+    static int frames = 0;
+    const uint64_t freq = SDL_GetPerformanceFrequency();
+    uint64_t t0 = log ? SDL_GetPerformanceCounter() : 0;
     convert(pixels, pitch, width, height, palette);
+    uint64_t t1 = log ? SDL_GetPerformanceCounter() : 0;
     SDL_UpdateTexture(g_texture, nullptr, g_rgb.data(), width * 4);
+    uint64_t t2 = log ? SDL_GetPerformanceCounter() : 0;
     SDL_RenderClear(g_renderer);
     SDL_RenderCopy(g_renderer, g_texture, nullptr, nullptr);
-    SDL_RenderPresent(g_renderer);
+    draw_pointer();
+    draw_fps();
+    {
+        const uint64_t p0 = now_us();
+        hold_for_display();
+        SDL_RenderPresent(g_renderer);
+        g_work.exclude(now_us() - p0);  // the wait for the display is not drawing
+    }
+    if (!log) return;
+    uint64_t t3 = SDL_GetPerformanceCounter();
+    if (t_end) {
+        gap_min = std::min(gap_min, t3 - t_end);
+        gap_max = std::max(gap_max, t3 - t_end);
+        sum[0] += t1 - t0;
+        sum[1] += t2 - t1;
+        sum[2] += t3 - t2;
+        sum[3] += t0 - t_end;
+        worst = std::max(worst, t0 - t_end);
+        frames++;
+    }
+    t_end = t3;
+    if (!t_report) t_report = t3;
+    if (t3 - t_report >= 2 * freq && frames > 0) {
+        auto ms = [&](uint64_t v) { return (double)v * 1000.0 / (double)freq / frames; };
+        std::fprintf(stderr, "frames: %d in 2 s; convert %.1f upload %.1f present %.1f between %.1f ms (longest %.1f); gaps %.1f..%.1f; indicator %d fps %.1f ms\n",
+                     frames, ms(sum[0]), ms(sum[1]), ms(sum[2]), ms(sum[3]),
+                     (double)worst * 1000.0 / (double)freq, (double)gap_min * 1000.0 / (double)freq,
+                     (double)gap_max * 1000.0 / (double)freq, g_work.fps(), g_work.ms());
+        gap_min = ~0ull;
+        gap_max = 0;
+        sum[0] = sum[1] = sum[2] = sum[3] = worst = 0;
+        frames = 0;
+        t_report = t3;
+    }
 }
 
 void video_present_rgb(const uint32_t* pixels, int32_t width, int32_t height) {

@@ -21,8 +21,16 @@
 // Unattended runs (--hidden with scripted keys) skip the frames; OPENSMAC_ANIM=1 draws them without
 // waiting (OPENSMAC_SCOOT_SHOT=FILE: the screen at the half way of a slide, a test aid). The facing (the
 // only game state) is set in every case.
+//
+// Not original (modern.h, "Smooth Unit Moves"): the turn and the slide as one move timed by the
+// clock, a frame as often as the screen takes one. The unit gathers speed from rest and comes to
+// rest (modern_math.h step_pos); it turns while it goes, a turn beyond a quarter starting on the
+// spot; its animated parts step every 40 ms. A tile that follows the last one's at once (a go-to)
+// starts at speed, and one whose order leads further ends at speed, so a longer move does not
+// pause at each tile. The same tiles, background and final drawing as the original's.
 #include <cstdio>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <vector>
 
@@ -32,6 +40,8 @@
 #include "platform/ui_platform.h"
 #include "ui/gfx.h"
 #include "ui/mapwin.h"
+#include "ui/modern.h"
+#include "ui/modern_math.h"
 #include "ui/sound.h"
 #include "ui/vehdraw.h"
 #include "ui/voxel.h"
@@ -157,11 +167,102 @@ void GAMEAPI veh_scoot(int32_t veh_id, int32_t x, int32_t y, int32_t dir, int32_
                 Buffer_copy_4(nat->canvas, &m.bg, r.left, r.top, 0, 0, r.right - r.left, r.bottom - r.top);
             }
         }
+        const bool modern_move = drawing && modern::moves();
         int32_t per_turn = UnitAnimMode < 0 ? 0x19 : (UnitAnimMode ? 8 : 0x10);
         int32_t turn = 0;
-        if (drawing) turn = vehdraw_turn_start(veh_id, dir, per_turn, 2);
+        int32_t from = Vehs[veh_id].rotate_angle;  // (the modern move's)
+        if (from == -1) from = 0;
+        if (drawing && !modern_move) turn = vehdraw_turn_start(veh_id, dir, per_turn, 2);
         else Vehs[veh_id].rotate_angle = (int8_t)dir;  // (vehdraw_turn_start's facing)
         uint32_t last = platform::ticks_ms();
+        if (modern_move) {
+            // The tile this unit's last move ended on, and when: a move from there at once goes on.
+            static int32_t s_veh = -1, s_x = -1, s_y = -1;
+            static uint32_t s_end = 0;
+            const bool slide = !(flags & 1);
+            const int32_t eighths = modern::turn_eighths(from & 7, dir);
+            const int32_t step = modern::step_ms(
+                UnitAnimMode, triad, MultiplayerActive && Vehs[veh_id].faction_id == CurrentPlayerFaction);
+            const int32_t turn_time = modern::turn_ms(eighths, step);
+            const int32_t wait = slide ? modern::slide_delay_ms(eighths, step) : 0;
+            const int32_t total = slide ? std::max(turn_time, wait + step) : turn_time;
+            const bool goes_on = slide && s_veh == veh_id && s_x == x && s_y == y && (uint32_t)(last - s_end) < 120 &&
+                                 std::abs(eighths) <= 2;
+            // The order leads beyond the next tile (a go-to under way).
+            const VEH& v = Vehs[veh_id];
+            const bool leads_on = slide && (v.order == ORDER_MOVE_TO || v.order == ORDER_AI_GO_TO ||
+                                            v.order == ORDER_ROAD_TO || v.order == ORDER_MAGTUBE_TO) &&
+                                  v.waypoint_x[0] >= 0 && (v.waypoint_x[0] != x2 || v.waypoint_y[0] != y2);
+            vehdraw_scoot_start(veh_id, dir, 64, 2);  // the slide's tilt
+            ui_anim(true);  // the move's frames follow each other: held for the display, the console kept
+            const char* shot = std::getenv("OPENSMAC_SCOOT_SHOT");
+            bool shot_done = !(shot && *shot && slide);
+            // The move's clock starts when its first frame is on the screen: what comes before it
+            // (the map drawn again, the console's picture for the run) took a third of the move.
+            uint32_t t0 = platform::ticks_ms();
+            int32_t frames = 0;
+            for (int32_t scripted = 0;; scripted += 16) {
+                // An unattended run's frames are 16 ms apart whatever they take.
+                const int32_t at = std::min(total, g_ui_unattended ? scripted : (int32_t)(platform::ticks_ms() - t0));
+                const double way =
+                    slide ? modern::step_pos((double)(at - wait) / (double)step, !goes_on, !leads_on) : 0.0;
+                const double turned = eighths * (turn_time > 0 ? modern::smooth((double)at / turn_time) : 1.0);
+                vehdraw_move_frame(true, way, from & 7, turned, 1 + at / 40);
+                // The unit in every window that shows it, one presentation, their backgrounds put
+                // back. (The original updates each window's rectangle; a presentation is the whole
+                // screen here, and one for each window made every frame cost two.)
+                bool drawn[8] = {};
+                int32_t at_x[8] = {}, at_y[8] = {};
+                bool any = false;
+                for (int32_t i = 0; i < 8; i++) {
+                    WinMove& m = mv[i];
+                    if (!m.on) continue;
+                    uint8_t* win = MapWins[i];
+                    Buffer* c = ui_mapwin_native(win)->canvas;
+                    const int32_t px = m.sx + (int32_t)std::lround((m.dx - m.sx) * way);
+                    const int32_t py = m.sy + (int32_t)std::lround((m.dy - m.sy) * way);
+                    const int32_t w = m.r.right - m.r.left, h = m.r.bottom - m.r.top;
+                    if (!intersects(UiRect{px, py, px + w, py + h}, m.r)) continue;
+                    veh_draw(c, veh_id, px, py, map_win(win).zoom, 0x22, 0);
+                    drawn[i] = any = true;
+                    at_x[i] = px;
+                    at_y[i] = py;
+                }
+                if (any && !shot_done && way >= 0.5) {  // test aid: the screen of this frame
+                    shot_done = true;
+                    ui_screenshot(g_ui_outdir + "/" + shot);
+                }
+                const uint32_t tp = platform::ticks_ms();
+                if (any) ui_present();  // GraphicWin_update_2 of the rectangles
+                if (std::getenv("OPENSMAC_ANIM"))
+                    std::fprintf(stderr, "scoot frame: at %d of %d, drawn in %u ms, present %u ms\n", at, total,
+                                 tp - (t0 + (uint32_t)at), platform::ticks_ms() - tp);
+                for (int32_t i = 0; i < 8; i++) {
+                    if (!drawn[i]) continue;
+                    WinMove& m = mv[i];
+                    Buffer* c = ui_mapwin_native(MapWins[i])->canvas;
+                    const int32_t px = at_x[i], py = at_y[i];
+                    const int32_t w = m.r.right - m.r.left, h = m.r.bottom - m.r.top;
+                    Buffer_copy_4(&m.bg, c, px - m.qw - m.r.left, py - m.qh - m.r.top, px - m.qw, py - m.qh, w, h);
+                }
+                if (frames == 0) t0 = platform::ticks_ms();
+                frames++;
+                if (at >= total) break;
+                wait_ms(&last, 4);
+            }
+            vehdraw_move_frame(false, 0, 0, 0, 0);
+            ui_anim(false);
+            if (slide) {
+                s_veh = veh_id;
+                s_x = x2;
+                s_y = y2;
+                s_end = platform::ticks_ms();
+            }
+            if (std::getenv("OPENSMAC_ANIM"))
+                std::fprintf(stderr, "scoot modern: veh %d dir %d turn %d/8 %d ms slide %d ms frames %d%s%s\n", veh_id, dir,
+                             eighths, turn_time, slide ? step : 0, frames, goes_on ? " goes-on" : "",
+                             leads_on ? " leads-on" : "");
+        }
         // A frame in each window: the unit drawn where it is when that rectangle meets the saved
         // one, shown, and the background put back around it; the slide's point steps on.
         auto frame = [&](int32_t mode, int32_t f, bool slide) {
@@ -185,13 +286,13 @@ void GAMEAPI veh_scoot(int32_t veh_id, int32_t x, int32_t y, int32_t dir, int32_
                 if (slide) vec3_add(m.pos, m.step, m.pos);
             }
         };
-        if (drawing)
+        if (drawing && !modern_move)
             for (int32_t f = 0; f < turn; f++) {
                 frame(0x12, f, false);
                 wait_ms(&last, delay / 2);
             }
         if (!(flags & 1)) {
-            if (drawing) {
+            if (drawing && !modern_move) {
                 vehdraw_scoot_start(veh_id, dir, frames, 2);
                 for (int32_t f = 0; f < frames; f++) {
                     const char* shot = std::getenv("OPENSMAC_SCOOT_SHOT");
@@ -213,7 +314,7 @@ void GAMEAPI veh_scoot(int32_t veh_id, int32_t x, int32_t y, int32_t dir, int32_
         } else {
             no_final = true;  // (the original's path skips to the end)
         }
-        if (drawing && std::getenv("OPENSMAC_ANIM"))
+        if (drawing && !modern_move && std::getenv("OPENSMAC_ANIM"))
             std::fprintf(stderr, "scoot anim: veh %d dir %d turn %d slide %d\n", veh_id, dir, turn,
                          (flags & 1) ? 0 : frames);
     } else {

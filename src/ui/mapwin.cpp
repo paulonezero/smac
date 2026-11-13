@@ -1,5 +1,6 @@
 // Map window geometry and terrain rendering (see mapwin.h).
 #include "ui/mapwin.h"
+#include "ui/modern.h"
 #include "ui/smoothview.h"
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <string>
 
 #include "engine/base.h"
+#include "platform/ui_platform.h"
 #include "engine/globals.h"
 #include "engine/map.h"
 #include "engine/ui_bridge.h"
@@ -714,6 +716,7 @@ void THISCALL pfncDrawMap(uint8_t* win, int32_t faction_id, int32_t terrain_only
 void THISCALL pfncRedrawMap(uint8_t* win, int32_t flag) {
     MapWinNative* n = ui_mapwin_native(win);
     if (!n) return;
+    platform::WorkScope work(win == MapWins[0], false);  // (not original: the frame rate indicator)
     Buffer* canvas = n->canvas;
     UiRect rows_rect{0, 0, 0, 0}, cols_rect{0, 0, 0, 0};  // local_64, local_44
     if (map_win(win).pixel_x || map_win(win).pixel_y) map_win(win).scrolling = 0;
@@ -725,6 +728,7 @@ void THISCALL pfncRedrawMap(uint8_t* win, int32_t flag) {
     pfncZoomProcessing(win);
     const int32_t viewer = (GameState & STATE_OMNISCIENT_VIEW) ? -1 : CurrentPlayerFaction;
     if (!map_win(win).scrolling) {
+        if (win == MapWins[0]) modern::ring_reset();  // (not original: placed again by this redraw)
         pfncDrawMap(win, viewer, flag < 0);
         return;  // (flag: GraphicWin_redraw shows the canvas; the platform presents it)
     }
@@ -795,6 +799,7 @@ void THISCALL pfncRedrawMap(uint8_t* win, int32_t flag) {
         CursorTileCorners[i][0] -= dx;
         CursorTileCorners[i][1] -= dy;
     }
+    if (win == MapWins[0]) modern::ring_shift(dx, dy);  // (not original)
     int32_t adx = dx < 0 ? -dx : dx;
     int32_t moved = ox - ox0 < 0 ? ox0 - ox : ox - ox0;
     if (cols < moved) {

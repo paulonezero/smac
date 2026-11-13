@@ -31,6 +31,8 @@
 #include "ui/statuswin.h"
 #include "ui/console.h"
 #include "ui/mapwin.h"
+#include "ui/modern.h"
+#include "ui/smoothview.h"
 #include "ui/font_text.h"
 #include "ui/basewin.h"
 #include "engine/strings.h"
@@ -214,12 +216,18 @@ void blink_timer() {
     }
     if (console_win(self).waiting || (MultiplayerActive && (GameState & 2))) {
         console_win(self).cursor_shown = !console_win(self).cursor_shown;
+        // (Not original, modern.h: the selection ring stands in for the unit's blink, and the
+        // map is not drawn again for it.)
+        if (MapWinInVehMode && modern::ring()) return;
         draw_cursor();
     }
 }
 
 void console_ui_tick() {
     if (g_go_timer_due && (int32_t)(platform::ticks_ms() - g_go_timer_due) >= 0) go_timer();
+    // The selection ring breathes: a frame of its own (held for the display when paced).
+    // (Not while the view moves: its frames draw the ring, and a frame between them would halve them.)
+    if (!smoothview::moving() && modern::ring_tick(platform::ticks_ms(), ui_pace() ? 12 : 33)) ui_invalidate_ring();
     static uint32_t last_blink = 0;
     uint32_t now = platform::ticks_ms();
     if (now - last_blink >= 150) {

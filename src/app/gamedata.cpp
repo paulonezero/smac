@@ -321,7 +321,7 @@ int ask_box(const std::string& text, const char* yes, const char* no) {
 
 enum class Pick { picked, cancelled, unavailable };
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__SWITCH__)
 // Runs a picker command; its first output line is the folder. Exit status 1: cancelled.
 Pick run_picker(const std::string& cmd, std::string* out) {
     FILE* p = popen((cmd + " 2>/dev/null").c_str(), "r");
@@ -342,6 +342,10 @@ Pick run_picker(const std::string& cmd, std::string* out) {
 
 // The platform's folder picker.
 Pick native_pick(std::string* out) {
+#ifdef __SWITCH__
+    (void)out;
+    return Pick::unavailable;  // no other program to ask: the game is looked for on the card
+#else
     const char prompt[] = "Choose the Alpha Centauri folder (the one with terranx.exe)";
 #ifdef _WIN32
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -367,6 +371,7 @@ Pick native_pick(std::string* out) {
     if (std::system("command -v kdialog >/dev/null 2>&1") == 0)
         return run_picker(std::string("kdialog --title \"") + prompt + "\" --getexistingdirectory \"$HOME\"", out);
     return Pick::unavailable;
+#endif
 #endif
 }
 
@@ -507,7 +512,22 @@ bool check_game_dir(const std::string& dir, std::string* why) {
     return true;
 }
 
+#ifdef __SWITCH__
+const char kSwitchDir[] = "/switch/smac/";  // the program's folder on the SD card
+#endif
+
 std::string user_dir() {
+#ifdef __SWITCH__
+    // Beside the program on the card (kSwitchDir), where a player finds the saves.
+    std::error_code sec;
+    std::string sdir = std::string(kSwitchDir) + "user/";
+    fs::create_directories(sdir, sec);
+    if (!fs::is_directory(sdir, sec)) {
+        std::fprintf(stderr, "opensmac: cannot create %s\n", sdir.c_str());
+        return "";
+    }
+    return sdir;
+#endif
     char* p = SDL_GetPrefPath("", userdir::app_name());
     if (!p) {
         std::fprintf(stderr, "opensmac: no per-user directory: %s\n", SDL_GetError());
@@ -537,6 +557,14 @@ std::string user_dir() {
 
 std::string find_game_dir(const std::string& udir) {
     std::string why, first_problem;
+#ifdef __SWITCH__
+    // The one place: the game's files copied to the card beside the program.
+    (void)udir;
+    std::string card = std::string(kSwitchDir) + "game";
+    if (check_game_dir(card, &why)) return card;
+    show_error("Game files not found in " + card + ": " + why);
+    return "";
+#endif
     // A game folder shipped with the program: "game" beside the executable, in a macOS
     // application bundle Contents/Resources/game (SDL_GetBasePath). A self-contained copy plays
     // from it; it is not remembered, so other copies keep their own folder.

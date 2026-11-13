@@ -32,6 +32,7 @@ void ui_set_drag_target(int32_t x, int32_t y);
 // taken) and drawing (menu.cpp).
 bool console_menu_mouse(int32_t type, int32_t x, int32_t y);
 bool console_menu_key(int32_t key);
+bool console_menu_open();  // the menu bar is shown (not original: ui/gamepad.h)
 void console_menu_toggle();  // the MENU button (MainInterface_on_iface_button_clicked 0x3EB)
 void console_menu_draw(Buffer* screen);
 // The pull-down of menu `index` (Menu_id_to_index: 3 Action, 9 Terraform, ...) shown at the screen
@@ -45,6 +46,13 @@ void console_toggle_pref(int32_t id);
 // pixels, the oracle's view at 1024 x 768); on a screen wider than the console (1024) the whole
 // height, so the map fills the screen beside the console (console_frame_draw).
 int32_t console_view_height(int32_t screen_width, int32_t screen_height);
+// The console's picture may serve once more: in a frame of a run that follows on (ui_animating:
+// the view moves, a unit's move plays, the selection ring breathes), once there is one (kept: the
+// presents it has served, 0 when there is none). Nothing in the console changes in those frames,
+// and drawing it costs as much as the rest of the frame on a slow system. Drawing it now and then
+// during a run made that frame twice as long, a hitch; the world map's view box stays where it
+// was until the run ends.
+inline bool console_keep(bool animating, int32_t kept) { return animating && kept >= 1; }
 
 // The main interface's panes drawn by the original's code (maininfc.cpp): the pane rectangles of
 // MainInterface_init, the world map (WorldWin_on_redraw), the date box (MainInterface_set_date)

@@ -58,6 +58,9 @@ enum EventType : int32_t {
     EV_MOUSE_WHEEL,  // WM_MOUSEWHEEL: key = +1 (up) / -1 (down)
     EV_EXPOSE,  // WM_PAINT: the window needs to be presented again
     EV_CLOSE,  // the window's close button (WM_SYSCOMMAND SC_CLOSE)
+    EV_PAD_DOWN,  // a controller's button pressed: key = its number (ui/padmap.h, Button)
+    EV_PAD_UP,
+    EV_PAD_STICK,  // a stick moved (pad_stick has where to): nothing to handle, the pump comes round
 };
 enum : int32_t { MOD_SHIFT = 1, MOD_CTRL = 2, MOD_ALT = 4 };
 struct Event {
@@ -80,6 +83,37 @@ void key_inject(int32_t keycode);
 void wheel_inject(float x, float y);
 // The game's window has the keyboard and the mouse (no scrolling at a screen edge otherwise).
 bool window_focused();
+
+// ---- controller (not in the original; ui/gamepad.h makes keys and mouse events of it) ----
+// A stick's position (0 left, 1 right): x right, y down, -1..1; at rest without a controller.
+void pad_stick(int32_t stick, float* x, float* y);
+// Test aids: a button (ui/padmap.h, Button) pressed or let go, and an axis (0, 1: the left stick's
+// x, y; 2, 3: the right's) moved to value (-1..1), as the controller delivers them.
+void pad_inject_button(int32_t button, bool down);
+void pad_inject_axis(int32_t axis, float value);
+// The drawn pointer (the mouse a controller has not got): its tip at x, y of the frame, or hidden.
+// It is drawn over the frame at each present, and the screen is shown again when it changes.
+void pointer_set(int32_t x, int32_t y, bool shown);
+// The frame rate indicator (platform/fps.h, Work): what the last frames in which the main map was
+// drawn cost, at the frame's top right: the frames a second that time would allow (yellow) and
+// the milliseconds (white). WorkScope brackets drawing work: `map` when it draws the main map,
+// `frame` when it ends with the frame shown. Also on with OPENSMAC_FPS set in the environment.
+// The presents that follow are held for the display's refresh, each `refreshes` of them after the
+// one before (2: 30 a second on a 60 Hz display, 1: 60; 0: not held, the default). For frames
+// that follow each other without the game's own pacing (a moving view, the modern animations):
+// evenly spaced or they judder. By the display's refresh event on the Switch, by the clock
+// elsewhere.
+void present_interval(int32_t refreshes);
+void fps_show(bool on);
+void work_begin(bool map);
+void work_end(bool frame);
+struct WorkScope {
+    bool frame;
+    WorkScope(bool map, bool frame_) : frame(frame_) { work_begin(map); }
+    ~WorkScope() { work_end(frame); }
+    WorkScope(const WorkScope&) = delete;
+    WorkScope& operator=(const WorkScope&) = delete;
+};
 
 // ---- clock (timeGetTime) ----
 uint32_t ticks_ms();
